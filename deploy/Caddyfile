@@ -1,0 +1,18 @@
+# Caddy terminates TLS for the API. Caddy gets a certificate automatically.
+# Replace api.wasignal.com with your host. If Cloudflare proxies this record
+# (orange cloud), set SSL mode to "Full (strict)".
+
+api.wasignal.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# If you keep the browser on subdomains only, lock CORS down at the app layer
+	# (WASIGNAL_CORS_ORIGINS) and leave this as a plain reverse proxy.
+	reverse_proxy 127.0.0.1:8000
+}

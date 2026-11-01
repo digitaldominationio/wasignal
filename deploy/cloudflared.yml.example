@@ -1,0 +1,15 @@
+# Cloudflare Tunnel alternative to opening port 443 on the VPS.
+#
+#   cloudflared tunnel create wasignal
+#   cloudflared tunnel route dns wasignal api.wasignal.com
+#   cloudflared tunnel run --config deploy/cloudflared.yml wasignal
+#
+# This keeps the API on 127.0.0.1:8000 with no inbound firewall rules.
+
+tunnel: REPLACE_WITH_TUNNEL_ID
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_ID.json
+
+ingress:
+  - hostname: api.wasignal.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404

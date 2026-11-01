@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.local
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.pytest_cache/
+apps/api/.venv/
+apps/api/data/
+*.db
+*.db-shm
+*.db-wal
+
+# build artifacts
+apps/web/tsconfig.tsbuildinfo
+out/

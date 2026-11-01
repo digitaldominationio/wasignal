@@ -1,0 +1,22 @@
+[Unit]
+Description=Wasignal API (WhatsApp AI agents)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wasignal
+Group=wasignal
+WorkingDirectory=/srv/wasignal/apps/api
+EnvironmentFile=/srv/wasignal/.env
+# single worker: in-process scheduler + outbox worker, SQLite store
+ExecStart=/srv/wasignal/apps/api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/srv/wasignal/apps/api/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,81 @@
+# Coolify deployment: nginx (static web) + FastAPI + MongoDB + Redis.
+#
+#   web  :80   static export, proxies /api/* to api:8000
+#   api  :8000 FastAPI (one worker: in-process scheduler/outbox, Redis locks)
+#   mongo      metadata, messages, runs
+#   redis      model cache + worker/scheduler locks
+#
+# Secrets (WASIGNAL_DEV_OTP, WASIGNAL_INTERNAL_KEY) come from Coolify env vars.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--quiet"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      WASIGNAL_ENV: production
+      WASIGNAL_DB_BACKEND: mongo
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB: wasignal
+      REDIS_URL: redis://redis:6379
+      WASIGNAL_SEED_DEMO: "1"
+      WASIGNAL_DEV_OTP: ${WASIGNAL_DEV_OTP:-123456}
+      WASIGNAL_INTERNAL_KEY: ${WASIGNAL_INTERNAL_KEY:-change-me}
+      WASIGNAL_CORS_ORIGINS: ${WASIGNAL_CORS_ORIGINS:-https://kontactiq.com}
+      WASIGNAL_LLM_PROVIDER: ${WASIGNAL_LLM_PROVIDER:-echo}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  mongo_data:
+  redis_data:
