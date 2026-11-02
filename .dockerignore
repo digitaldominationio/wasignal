@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.next
+**/out
+**/__pycache__
+**/.venv
+**/*.pyc
+**/.pytest_cache
+apps/api/data
+**/tsconfig.tsbuildinfo
+docs/screenshots
