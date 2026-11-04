@@ -111,7 +111,7 @@ contract, so it can be hosted on Cloudflare Pages without a server
 | Outbox worker with separate transport vs thread status | ✅ |
 | Dashboard (login, agents, chats, send, pause, follow-ups, connect) | ✅ |
 | WhatsApp bridge | ❌ adapter stub — see `docs/BRIDGE.md` |
-| LLM providers | echo (offline) · OpenRouter (live model catalogue) · any OpenAI-compatible endpoint |
+| LLM providers | **BYOK per tenant**: OpenRouter, OpenAI, Anthropic, DeepSeek; echo fallback |
 | Knowledge extraction from media (vision) | ❌ endpoint returns `not_implemented` |
 | Billing, orgs/roles, analytics | ❌ out of scope for the skeleton |
 
@@ -193,7 +193,7 @@ cd apps/api
 .venv/bin/python -m pytest -q
 ```
 
-43 tests cover: admission vs delivery states, exclusions, read-only agents,
+52 tests cover: admission vs delivery states, exclusions, read-only agents,
 human pause, handover, capability denial, cross-chat sending, knowledge
 retrieval, memory, webhook validation, follow-up idempotency and send windows,
 one-shot jobs/tasks, RRULE, OpenRouter catalogue normalisation/caching, provider
@@ -230,6 +230,34 @@ provider webhooks, tenant isolation, login and the HTTP contract.
 * **New storage** → replace `repo.py` (all SQL lives there) with Mongo/Postgres.
 * **Per-account channels** → add `accounts.channel` and route in
   `services/outbound.deliver`.
+
+---
+
+## Bring your own AI key (BYOK)
+
+Inference cost belongs to the tenant, not the deployment. Each organization
+stores its own provider keys; agents resolve model → provider → key per turn.
+
+| Provider | Adapter | Notes |
+|---|---|---|
+| OpenRouter | OpenAI-compatible | public model catalogue, `sk-or-…` |
+| OpenAI | OpenAI-compatible | `/v1/models` for the picker |
+| Anthropic | Messages API | Claude models, tool use translated |
+| DeepSeek | OpenAI-compatible | `deepseek-chat` etc. |
+
+Setup: **Settings → Default model**, paste a key into any provider card, save.
+Keys are validated against the provider's model endpoint, then stored with
+AES-GCM (`WASIGNAL_SECRET_KEY`); the API only returns a hint like `sk-or…4f2a`.
+
+Resolution order for a turn:
+
+```
+agent.llm_provider/model  →  organization default  →  deployment default
+key: organization credential  →  deployment env key  →  not configured (explicit error)
+```
+
+Tokens are metered per organization (`usage_events.metric = "tokens"`) and shown
+in Billing as “billed by your provider”.
 
 ---
 

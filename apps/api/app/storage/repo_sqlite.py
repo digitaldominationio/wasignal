@@ -1098,3 +1098,57 @@ def clear_pending_work() -> None:
     db.execute("UPDATE followup_rules SET enabled=0")
     db.execute("UPDATE jobs SET enabled=0")
     db.execute("UPDATE tasks SET status='done'")
+
+
+# ------------------------------------------------------ provider credentials
+
+
+def upsert_credential(org_id: int, provider: str, encrypted_key: str, nonce: str,
+                      key_hint: str, base_url: Optional[str], created_by: Optional[int]) -> dict[str, Any]:
+    now = int(time.time())
+    db.execute(
+        "INSERT INTO provider_credentials(org_id, provider, encrypted_key, nonce, key_hint, base_url, "
+        "status, created_by, created_at, updated_at, last_validated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(org_id, provider) DO UPDATE SET encrypted_key=excluded.encrypted_key, nonce=excluded.nonce, "
+        "key_hint=excluded.key_hint, base_url=excluded.base_url, status='active', updated_at=excluded.updated_at, "
+        "last_validated_at=excluded.last_validated_at",
+        (org_id, provider, encrypted_key, nonce, key_hint, base_url, "active", created_by, now, now, now),
+    )
+    return db.one(
+        "SELECT * FROM provider_credentials WHERE org_id=? AND provider=?", (org_id, provider)
+    )  # type: ignore[return-value]
+
+
+def get_credential(org_id: int, provider: str) -> Optional[dict[str, Any]]:
+    return db.one("SELECT * FROM provider_credentials WHERE org_id=? AND provider=?", (org_id, provider))
+
+
+def list_credentials(org_id: int) -> list[dict[str, Any]]:
+    rows = db.query("SELECT * FROM provider_credentials WHERE org_id=? ORDER BY provider", (org_id,))
+    for row in rows:
+        row.pop("encrypted_key", None)
+        row.pop("nonce", None)
+    return rows
+
+
+def delete_credential(org_id: int, provider: str) -> None:
+    db.execute("DELETE FROM provider_credentials WHERE org_id=? AND provider=?", (org_id, provider))
+
+
+def update_credential(org_id: int, provider: str, **fields: Any) -> None:
+    allowed = {"status", "last_validated_at", "last_used_at", "base_url", "key_hint"}
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if not updates:
+        return
+    sets = ", ".join(f"{key}=?" for key in updates)
+    db.execute(
+        f"UPDATE provider_credentials SET {sets} WHERE org_id=? AND provider=?",
+        (*updates.values(), org_id, provider),
+    )
+
+
+def set_org_defaults(org_id: int, provider: Optional[str], model: Optional[str]) -> None:
+    db.execute(
+        "UPDATE organizations SET default_provider=?, default_model=? WHERE id=?",
+        (provider, model, org_id),
+    )

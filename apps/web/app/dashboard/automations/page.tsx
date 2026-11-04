@@ -45,6 +45,7 @@ export default function AutomationsPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsReady, setModelsReady] = useState(false);
   const [providerName, setProviderName] = useState("echo");
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<CreateForm>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
@@ -64,14 +65,22 @@ export default function AutomationsPage() {
       setAgents(agentData.items);
       setRooms(roomData.items);
       try {
-        const providers = await api<{ provider: string; openrouter: { configured: boolean } }>(
-          "/dashboard/models/providers",
-          { accountId },
-        );
-        setProviderName(providers.provider);
-        setModelsReady(providers.openrouter.configured);
-        if (providers.openrouter.configured) {
-          const catalogue = await api<{ items: ModelInfo[] }>("/dashboard/models?limit=400", { accountId });
+        const providers = await api<{
+          provider: string;
+          default_provider: string | null;
+          providers: { id: string; configured: boolean; using_deployment_key: boolean }[];
+        }>("/dashboard/models/providers", { accountId });
+        const usable = providers.default_provider
+          ?? providers.providers.find((item) => item.configured || item.using_deployment_key)?.id
+          ?? null;
+        setActiveProvider(usable);
+        setProviderName(usable ?? "echo");
+        setModelsReady(Boolean(usable));
+        if (usable) {
+          const catalogue = await api<{ items: ModelInfo[] }>(
+            `/dashboard/models?limit=400&provider=${usable}`,
+            { accountId },
+          );
           setModels(catalogue.items);
         }
       } catch {
@@ -104,7 +113,7 @@ export default function AutomationsPage() {
           chat_type: form.chat_type,
           room_id: form.room_id ? Number(form.room_id) : null,
           capabilities: form.capabilities,
-          llm_provider: form.llm_model ? "openrouter" : null,
+          llm_provider: form.llm_model ? activeProvider : null,
           llm_model: form.llm_model || null,
         },
       });
@@ -135,7 +144,7 @@ export default function AutomationsPage() {
       const updated = await api<Agent>(`/dashboard/agents/${agent.id}`, {
         method: "PATCH",
         accountId,
-        body: { llm_provider: "openrouter", llm_model: modelId },
+        body: { llm_provider: activeProvider, llm_model: modelId },
       });
       setAgents((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {

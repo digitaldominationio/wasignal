@@ -90,6 +90,11 @@ class Settings:
     redis_url: str = os.getenv("REDIS_URL", "").strip()
     fakeredis: bool = _bool("WASIGNAL_FAKEREDIS", False)
 
+    # BYOK: master key for encrypting tenant provider credentials at rest.
+    # Generate with: python -c "import secrets;print(secrets.token_urlsafe(32))"
+    secret_key: str = os.getenv("WASIGNAL_SECRET_KEY", "dev-insecure-secret-change-me")
+    provider_validation_timeout: int = _int("WASIGNAL_PROVIDER_TIMEOUT", 15)
+
 
     # channel: "stub" (in-memory outbox) or "meta" (Cloud API)
     channel: str = os.getenv("WASIGNAL_CHANNEL", "stub")

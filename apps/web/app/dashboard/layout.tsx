@@ -15,6 +15,7 @@ import {
   MessageCircle,
   MessageSquare,
   Plug,
+  Settings,
   Sparkles,
   Tags,
   TriangleAlert,
@@ -37,6 +38,7 @@ const NAV = [
   { href: "/dashboard/excluded", label: "Excluded Chats", icon: EyeOff },
   { href: "/dashboard/activity", label: "Activity", icon: Activity },
   { href: "/dashboard/insights", label: "Insights", icon: BarChart3 },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
   { href: "/dashboard/team", label: "Team", icon: Users },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
 ];

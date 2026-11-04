@@ -15,6 +15,7 @@ from typing import Any, Optional
 from .. import repo
 from ..config import settings
 from ..llm import LLMError, get_llm
+from ..services import billing
 from ..llm.base import LLMResponse, ToolCall
 from . import capabilities as caps
 from .prompts import build_messages
@@ -39,7 +40,8 @@ class AgentRuntime:
         self.account = account
         self.room = room
         self.lane_key = lane_key
-        self.llm = get_llm(agent)
+        self.org_id = int(account["org_id"]) if account.get("org_id") else None
+        self.llm = get_llm(agent, self.org_id)
         self.tool_log: list[dict[str, Any]] = []
 
     async def run(self, *, text: str, history: list[dict[str, Any]], sender_name: str = "",
@@ -71,6 +73,8 @@ class AgentRuntime:
             model=getattr(self.llm, "model", None),
             tool_calls=self.tool_log,
         )
+        if self.org_id and outcome.tokens:
+            billing.record(self.org_id, "tokens", outcome.tokens, f"run:{run_id}")
         repo.touch_lane(self.agent["id"], self.room["id"], self.lane_key)
         _ = started
         return outcome

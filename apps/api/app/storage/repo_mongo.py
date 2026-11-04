@@ -1009,3 +1009,49 @@ def clear_pending_work() -> None:
     _c("followup_rules").update_many({}, {"$set": {"enabled": 0}})
     _c("jobs").update_many({}, {"$set": {"enabled": 0}})
     _c("tasks").update_many({}, {"$set": {"status": "done"}})
+
+
+# ------------------------------------------------------ provider credentials
+
+
+def upsert_credential(org_id: int, provider: str, encrypted_key: str, nonce: str,
+                      key_hint: str, base_url: Optional[str], created_by: Optional[int]) -> dict[str, Any]:
+    now = int(time.time())
+    _c("provider_credentials").update_one(
+        {"org_id": org_id, "provider": provider},
+        {"$set": {
+            "encrypted_key": encrypted_key, "nonce": nonce, "key_hint": key_hint,
+            "base_url": base_url, "status": "active", "updated_at": now, "last_validated_at": now,
+        }, "$setOnInsert": {"created_at": now, "created_by": created_by, "last_used_at": None}},
+        upsert=True,
+    )
+    return get_credential(org_id, provider)  # type: ignore[return-value]
+
+
+def get_credential(org_id: int, provider: str) -> Optional[dict[str, Any]]:
+    return _out(_c("provider_credentials").find_one({"org_id": org_id, "provider": provider}))
+
+
+def list_credentials(org_id: int) -> list[dict[str, Any]]:
+    rows = [_out(d) for d in _c("provider_credentials").find({"org_id": org_id}).sort("provider", 1)]
+    for row in rows:
+        row.pop("encrypted_key", None)
+        row.pop("nonce", None)
+    return rows
+
+
+def delete_credential(org_id: int, provider: str) -> None:
+    _c("provider_credentials").delete_one({"org_id": org_id, "provider": provider})
+
+
+def update_credential(org_id: int, provider: str, **fields: Any) -> None:
+    allowed = {"status", "last_validated_at", "last_used_at", "base_url", "key_hint"}
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if updates:
+        _c("provider_credentials").update_one({"org_id": org_id, "provider": provider}, {"$set": updates})
+
+
+def set_org_defaults(org_id: int, provider: Optional[str], model: Optional[str]) -> None:
+    _c("organizations").update_one(
+        {"_id": org_id}, {"$set": {"default_provider": provider, "default_model": model}}
+    )

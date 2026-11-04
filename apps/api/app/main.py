@@ -23,6 +23,7 @@ from .routers import (
     knowledge,
     models,
     organizations,
+    providers,
     rooms,
     scheduling,
     webhooks,
@@ -76,6 +77,7 @@ for router in (
     organizations.router,
     billing.router,
     models.router,
+    providers.router,
     internal.router,
     billing.webhooks,
 ):

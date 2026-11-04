@@ -1,11 +1,30 @@
 PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS organizations (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL,
-  slug       TEXT UNIQUE,
-  owner_pid  INTEGER NOT NULL REFERENCES partners(pid),
-  created_at INTEGER NOT NULL
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  name             TEXT NOT NULL,
+  slug             TEXT UNIQUE,
+  owner_pid        INTEGER NOT NULL REFERENCES partners(pid),
+  default_provider TEXT,
+  default_model    TEXT,
+  created_at       INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS provider_credentials (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id            INTEGER NOT NULL REFERENCES organizations(id),
+  provider          TEXT NOT NULL,
+  encrypted_key     TEXT NOT NULL,
+  nonce             TEXT NOT NULL,
+  key_hint          TEXT NOT NULL DEFAULT '',
+  base_url          TEXT,
+  status            TEXT NOT NULL DEFAULT 'active',   -- active | invalid | revoked
+  created_by        INTEGER,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
+  last_validated_at INTEGER,
+  last_used_at      INTEGER,
+  UNIQUE (org_id, provider)
 );
 
 CREATE TABLE IF NOT EXISTS memberships (

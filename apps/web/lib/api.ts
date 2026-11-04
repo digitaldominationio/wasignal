@@ -202,3 +202,23 @@ export type OrgSummary = {
   numbers: number;
   seats: number;
 };
+
+export type ProviderInfo = {
+  id: string;
+  label: string;
+  description: string;
+  docs: string;
+  configured: boolean;
+  key_hint: string | null;
+  status: "active" | "invalid" | "unconfigured" | "deployment" | "revoked";
+  base_url: string | null;
+  default_model: string;
+  using_deployment_key: boolean;
+  is_default: boolean;
+};
+
+export type ProvidersResponse = {
+  items: ProviderInfo[];
+  default_provider: string | null;
+  default_model: string | null;
+};

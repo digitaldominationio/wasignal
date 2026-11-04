@@ -135,6 +135,7 @@ def entitlements(org_id: int) -> dict[str, Any]:
         "runs": repo.usage_since(org_id, "runs", start),
         "numbers": repo.count_org_accounts(org_id),
         "seats": repo.count_memberships(org_id),
+        "tokens": repo.usage_since(org_id, "tokens", start),
     }
     limits = plan["limits"]
     remaining = {metric: max(0, int(limits.get(metric, 0)) - usage.get(metric, 0)) for metric in limits}

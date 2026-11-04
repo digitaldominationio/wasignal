@@ -144,6 +144,10 @@ export default function BillingPage() {
           <UsageBar label="Messages this period" used={usage?.messages ?? 0} limit={limits?.messages ?? 0} />
           <UsageBar label="Numbers" used={usage?.numbers ?? 0} limit={limits?.numbers ?? 0} />
           <UsageBar label="Seats" used={usage?.seats ?? 0} limit={limits?.seats ?? 0} />
+          <div className="muted" style={{ fontSize: 12 }}>
+            {(usage as { tokens?: number } | undefined)?.tokens?.toLocaleString("en-IN") ?? 0} LLM tokens this period ·
+            billed by your provider (BYOK), not by Wasignal
+          </div>
         </div>
       </div>
 
