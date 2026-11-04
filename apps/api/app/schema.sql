@@ -323,3 +323,50 @@ CREATE TABLE IF NOT EXISTS outbox (
   created_at INTEGER NOT NULL,
   sent_at    INTEGER
 );
+
+
+CREATE TABLE IF NOT EXISTS connected_accounts (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL REFERENCES organizations(id),
+  service       TEXT NOT NULL,                 -- google_calendar | gmail
+  toolkit       TEXT NOT NULL,                 -- broker toolkit slug
+  provider      TEXT NOT NULL DEFAULT 'composio',
+  external_id   TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending', -- pending | active | expired | failed | revoked
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  UNIQUE (org_id, service)
+);
+
+CREATE TABLE IF NOT EXISTS integration_actions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  account_id  INTEGER,
+  agent_id    INTEGER,
+  room_id     INTEGER,
+  service     TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  args_json   TEXT NOT NULL DEFAULT '{}',
+  status      TEXT NOT NULL DEFAULT 'ok',      -- ok | error | proposed
+  result_json TEXT NOT NULL DEFAULT '{}',
+  error       TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_actions_org ON integration_actions(org_id, id);
+
+CREATE TABLE IF NOT EXISTS pending_actions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id     INTEGER NOT NULL,
+  agent_id   INTEGER NOT NULL,
+  room_id    INTEGER NOT NULL,
+  lane_key   TEXT NOT NULL DEFAULT 'main',
+  service    TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  args_json  TEXT NOT NULL DEFAULT '{}',
+  token      TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'pending',  -- pending | executed | cancelled | expired
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pending_lane ON pending_actions(agent_id, room_id, lane_key, status);

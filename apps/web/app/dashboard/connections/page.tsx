@@ -49,13 +49,25 @@ export default function ConnectionsPage() {
   const [note, setNote] = useState<string | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
+  const [integrations, setIntegrations] = useState<{
+    configured: boolean;
+    services: { id: string; connected: boolean; status: string }[];
+  } | null>(null);
   const [linkState, setLinkState] = useState("pending");
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     try {
-      setData(await api<ConnectionsResponse>("/dashboard/connections", { accountId }));
+      const [connections, integrationsData] = await Promise.all([
+        api<ConnectionsResponse>("/dashboard/connections", { accountId }),
+        api<{ configured: boolean; services: { id: string; connected: boolean; status: string }[] }>(
+          "/dashboard/integrations",
+          { accountId },
+        ),
+      ]);
+      setData(connections);
+      setIntegrations(integrationsData);
     } catch (cause) {
       setError((cause as ApiError).detail);
     }
@@ -111,7 +123,11 @@ export default function ConnectionsPage() {
   async function disconnect(service: string) {
     if (!accountId) return;
     try {
-      await api(`/dashboard/connections/${service}`, { method: "DELETE", accountId });
+      if (service === "gmail" || service === "google_calendar") {
+        await api(`/dashboard/integrations/${service}`, { method: "DELETE", accountId });
+      } else {
+        await api(`/dashboard/connections/${service}`, { method: "DELETE", accountId });
+      }
       await load();
     } catch (cause) {
       setError((cause as ApiError).detail);
@@ -122,6 +138,17 @@ export default function ConnectionsPage() {
     if (!accountId) return;
     setNote(null);
     try {
+      if (service === "gmail" || service === "google_calendar") {
+        const result = await api<{ redirect_url?: string }>(
+          `/dashboard/integrations/${service}/connect`,
+          { method: "POST", accountId },
+        );
+        if (result.redirect_url) {
+          window.location.href = result.redirect_url;
+          return;
+        }
+        throw new Error("broker did not return a redirect");
+      }
       await api(`/dashboard/connections/${service}/connect`, { method: "POST", accountId });
       await load();
     } catch (cause) {
@@ -135,6 +162,18 @@ export default function ConnectionsPage() {
   }
 
   const whatsapp = data?.whatsapp;
+
+  function connectionState(item: ConnectionItem): { connected: boolean; detail: string } {
+    if (item.id === "gmail" || item.id === "google_calendar") {
+      const integration = integrations?.services.find((service) => service.id === item.id);
+      const connected = Boolean(integration?.connected);
+      return {
+        connected,
+        detail: connected ? "Connected via Google" : integration?.status === "pending" ? "Authorising…" : "Not connected yet",
+      };
+    }
+    return { connected: item.connected, detail: item.connected ? item.detail : "Not connected yet" };
+  }
 
   return (
     <>
@@ -151,6 +190,12 @@ export default function ConnectionsPage() {
       />
 
       {error ? <div className="card" style={{ borderColor: "#f0cfcc", marginBottom: 14 }}>{error}</div> : null}
+      {integrations && !integrations.configured ? (
+        <div className="card" style={{ borderColor: "var(--warn-line)", background: "#fffdf4", marginBottom: 14 }}>
+          Google connections need the broker configured. Add <code>COMPOSIO_API_KEY</code> and the Google auth-config
+          ids to the deployment, then reload this page.
+        </div>
+      ) : null}
       {note ? <div className="card" style={{ borderColor: "#f1e0b8", background: "#fffdf4", marginBottom: 14 }}>{note}</div> : null}
 
       <div className="group">
@@ -193,6 +238,7 @@ export default function ConnectionsPage() {
 
           {group.items.map((item) => {
             const Icon = ICONS[item.id] ?? Briefcase;
+            const state = connectionState(item);
             return (
               <div className="item-row" key={item.id}>
                 <span className="item-icon">
@@ -201,12 +247,12 @@ export default function ConnectionsPage() {
                 <div style={{ minWidth: 0 }}>
                   <div className="item-title">
                     {item.label}
-                    {item.connected ? <Pill tone="ok">Connected</Pill> : <Pill>Not connected</Pill>}
+                    {state.connected ? <Pill tone="ok">Connected</Pill> : <Pill>Not connected</Pill>}
                   </div>
-                  <div className="row-sub">{item.connected ? item.detail : "Not connected yet"}</div>
+                  <div className="row-sub">{state.detail}</div>
                 </div>
                 <div className="row-action">
-                  {item.connected ? (
+                  {state.connected ? (
                     <button className="btn ghost sm" onClick={() => disconnect(item.id)}>
                       Disconnect
                     </button>

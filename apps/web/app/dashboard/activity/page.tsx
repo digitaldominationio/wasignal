@@ -7,6 +7,15 @@ import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { dateTime } from "@/lib/format";
 import { useWorkspace } from "@/lib/workspace";
 
+type IntegrationAction = {
+  id: number;
+  service: string;
+  action: string;
+  status: string;
+  error: string | null;
+  created_at: number;
+};
+
 type Run = {
   id: number;
   agent_id: number;
@@ -35,6 +44,7 @@ export default function ActivityPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [actions, setActions] = useState<IntegrationAction[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,10 +52,12 @@ export default function ActivityPage() {
     Promise.all([
       api<{ items: Run[] }>("/dashboard/runs?limit=100", { accountId }),
       api<{ items: Agent[] }>("/dashboard/agents", { accountId }),
+      api<{ items: IntegrationAction[] }>("/dashboard/integrations/actions", { accountId }),
     ])
-      .then(([runData, agentData]) => {
+      .then(([runData, agentData, actionData]) => {
         setRuns(runData.items);
         setAgents(agentData.items);
+        setActions(actionData.items);
       })
       .catch((cause) => setError((cause as ApiError).detail));
   }, [accountId]);
@@ -122,6 +134,41 @@ export default function ActivityPage() {
           </table>
         ) : (
           <EmptyState title="No runs match" detail="Send a message from the Assistant, or relax the filters." />
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-title">Integration actions</div>
+        <div className="card-sub">Every calendar/email action, including proposals and failures.</div>
+        {actions.length ? (
+          <table className="table" style={{ marginTop: 10 }}>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Service</th>
+                <th>Action</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actions.map((action) => (
+                <tr key={action.id}>
+                  <td>
+                    <Pill tone={action.status === "ok" ? "ok" : action.status === "error" ? "bad" : "warn"}>
+                      {action.status}
+                    </Pill>
+                  </td>
+                  <td className="muted">{action.service}</td>
+                  <td>{action.action}</td>
+                  <td className="muted">{dateTime(action.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="muted" style={{ marginTop: 10 }}>
+            No calendar or email actions yet.
+          </div>
         )}
       </div>
     </>

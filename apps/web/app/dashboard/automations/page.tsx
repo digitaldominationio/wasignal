@@ -12,6 +12,8 @@ const CAPABILITIES: { id: string; label: string; hint: string }[] = [
   { id: "send", label: "Read & send", hint: "Reply with text and media" },
   { id: "send_other", label: "Send to other chats", hint: "Post in chats other than the trigger chat" },
   { id: "group_admin", label: "Group admin", hint: "Add/remove members, change settings" },
+  { id: "calendar", label: "Calendar", hint: "Read availability and book Google Calendar events (needs Google connected)" },
+  { id: "email", label: "Email", hint: "Search, draft and send Gmail (needs Google connected)" },
 ];
 
 type CreateForm = {

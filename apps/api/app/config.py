@@ -95,6 +95,13 @@ class Settings:
     secret_key: str = os.getenv("WASIGNAL_SECRET_KEY", "dev-insecure-secret-change-me")
     provider_validation_timeout: int = _int("WASIGNAL_PROVIDER_TIMEOUT", 15)
 
+    # Integration broker (Composio now; swap the adapter for another broker later)
+    composio_api_key: str = os.getenv("COMPOSIO_API_KEY", "").strip()
+    composio_base_url: str = os.getenv("COMPOSIO_BASE_URL", "https://backend.composio.dev").rstrip("/")
+    composio_auth_calendar: str = os.getenv("COMPOSIO_AUTH_CONFIG_GOOGLE_CALENDAR", "").strip()
+    composio_auth_gmail: str = os.getenv("COMPOSIO_AUTH_CONFIG_GMAIL", "").strip()
+    public_web_url: str = os.getenv("WASIGNAL_PUBLIC_WEB_URL", "https://kontactiq.com").rstrip("/")
+
 
     # channel: "stub" (in-memory outbox) or "meta" (Cloud API)
     channel: str = os.getenv("WASIGNAL_CHANNEL", "stub")

@@ -1017,14 +1017,16 @@ def clear_pending_work() -> None:
 def upsert_credential(org_id: int, provider: str, encrypted_key: str, nonce: str,
                       key_hint: str, base_url: Optional[str], created_by: Optional[int]) -> dict[str, Any]:
     now = int(time.time())
-    _c("provider_credentials").update_one(
-        {"org_id": org_id, "provider": provider},
-        {"$set": {
-            "encrypted_key": encrypted_key, "nonce": nonce, "key_hint": key_hint,
-            "base_url": base_url, "status": "active", "updated_at": now, "last_validated_at": now,
-        }, "$setOnInsert": {"created_at": now, "created_by": created_by, "last_used_at": None}},
-        upsert=True,
-    )
+    existing = _c("provider_credentials").find_one({"org_id": org_id, "provider": provider})
+    fields = {
+        "encrypted_key": encrypted_key, "nonce": nonce, "key_hint": key_hint,
+        "base_url": base_url, "status": "active", "updated_at": now, "last_validated_at": now,
+    }
+    if existing is None:
+        _insert("provider_credentials", org_id=org_id, provider=provider, created_by=created_by,
+                created_at=now, last_used_at=None, **fields)
+    else:
+        _c("provider_credentials").update_one({"_id": existing["_id"]}, {"$set": fields})
     return get_credential(org_id, provider)  # type: ignore[return-value]
 
 
@@ -1055,3 +1057,76 @@ def set_org_defaults(org_id: int, provider: Optional[str], model: Optional[str])
     _c("organizations").update_one(
         {"_id": org_id}, {"$set": {"default_provider": provider, "default_model": model}}
     )
+
+
+# ------------------------------------------------------ integrations / actions
+
+
+def upsert_connected_account(org_id: int, service: str, toolkit: str, external_id: Optional[str],
+                             status: str, provider: str = "composio",
+                             metadata: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    now = int(time.time())
+    fields = {"toolkit": toolkit, "provider": provider, "external_id": external_id,
+              "status": status, "metadata": metadata or {}, "updated_at": now}
+    existing = _c("connected_accounts").find_one({"org_id": org_id, "service": service})
+    if existing is None:
+        _insert("connected_accounts", org_id=org_id, service=service, created_at=now, **fields)
+    else:
+        _c("connected_accounts").update_one({"_id": existing["_id"]}, {"$set": fields})
+    return get_connected_account(org_id, service)  # type: ignore[return-value]
+
+
+def get_connected_account(org_id: int, service: str) -> Optional[dict[str, Any]]:
+    return _out(_c("connected_accounts").find_one({"org_id": org_id, "service": service}))
+
+
+def list_connected_accounts(org_id: int) -> list[dict[str, Any]]:
+    return [_out(d) for d in _c("connected_accounts").find({"org_id": org_id}).sort("service", 1)]
+
+
+def delete_connected_account(org_id: int, service: str) -> None:
+    _c("connected_accounts").delete_one({"org_id": org_id, "service": service})
+
+
+def add_integration_action(org_id: int, service: str, action: str, args: dict[str, Any],
+                           status: str, result: Optional[dict[str, Any]] = None,
+                           error: Optional[str] = None, account_id: Optional[int] = None,
+                           agent_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
+    return _insert(
+        "integration_actions", org_id=org_id, account_id=account_id, agent_id=agent_id, room_id=room_id,
+        service=service, action=action, args=args, status=status, result=result or {}, error=error,
+        created_at=int(time.time()),
+    )
+
+
+def list_integration_actions(org_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    return [_out(d) for d in _c("integration_actions").find({"org_id": org_id}).sort("_id", -1).limit(limit)]
+
+
+def create_pending_action(org_id: int, agent_id: int, room_id: int, lane_key: str, service: str,
+                          action: str, args: dict[str, Any], token: str, expires_at: int) -> dict[str, Any]:
+    ident = _insert(
+        "pending_actions", org_id=org_id, agent_id=agent_id, room_id=room_id, lane_key=lane_key,
+        service=service, action=action, args=args, token=token, status="pending",
+        created_at=int(time.time()), expires_at=expires_at,
+    )
+    return _out(_c("pending_actions").find_one({"_id": ident}))
+
+
+def pending_action_for_lane(agent_id: int, room_id: int, lane_key: str,
+                            now: Optional[int] = None) -> Optional[dict[str, Any]]:
+    moment = int(now if now is not None else time.time())
+    doc = _c("pending_actions").find_one(
+        {"agent_id": agent_id, "room_id": room_id, "lane_key": lane_key, "status": "pending"},
+        sort=[("_id", -1)],
+    )
+    if doc is None:
+        return None
+    if int(doc["expires_at"]) < moment:
+        _c("pending_actions").update_one({"_id": doc["_id"]}, {"$set": {"status": "expired"}})
+        return None
+    return _out(doc)
+
+
+def resolve_pending_action(action_id: int, status: str) -> None:
+    _c("pending_actions").update_one({"_id": action_id}, {"$set": {"status": status}})

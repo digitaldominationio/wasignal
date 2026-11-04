@@ -12,6 +12,8 @@ CAPABILITIES: dict[str, str] = {
     "send": "Reply in the scoped chat (text and media)",
     "send_other": "Post into chats other than the trigger chat",
     "group_admin": "Add/remove group members, change group settings",
+    "calendar": "Read availability and book Google Calendar events",
+    "email": "Search, read, draft and send Gmail",
 }
 
 DEFAULT = ["read", "send"]

@@ -112,6 +112,7 @@ contract, so it can be hosted on Cloudflare Pages without a server
 | Dashboard (login, agents, chats, send, pause, follow-ups, connect) | ✅ |
 | WhatsApp bridge | ❌ adapter stub — see `docs/BRIDGE.md` |
 | LLM providers | **BYOK per tenant**: OpenRouter, OpenAI, Anthropic, DeepSeek; echo fallback |
+| Google actions | Calendar + Gmail via Composio, with confirmation + audit |
 | Knowledge extraction from media (vision) | ❌ endpoint returns `not_implemented` |
 | Billing, orgs/roles, analytics | ❌ out of scope for the skeleton |
 
@@ -260,6 +261,52 @@ key: organization credential  →  deployment env key  →  not configured (expl
 
 Tokens are metered per organization (`usage_events.metric = "tokens"`) and shown
 in Billing as “billed by your provider”.
+
+---
+
+## Integrations: Google Calendar & Gmail (Composio)
+
+Rather than waiting on Google OAuth verification, tenant accounts are connected
+through **Composio** as the broker. The adapter is broker-neutral, so swapping to
+another broker later doesn't touch the agent.
+
+Enable it with three env vars (see `.env.example`):
+
+```bash
+COMPOSIO_API_KEY=...
+COMPOSIO_AUTH_CONFIG_GOOGLE_CALENDAR=ac_...
+COMPOSIO_AUTH_CONFIG_GMAIL=ac_...
+```
+
+In Composio: create a project → add the **Google Calendar** and **Gmail**
+toolkits → create an *auth config* for each (Composio-managed OAuth) → paste the
+two `ac_…` ids. Tenants then click **Connections → Google → Connect**, finish
+Google's consent screen, and come back connected.
+
+**What agents can do** (only when the agent has the capability *and* the tenant
+is connected):
+
+| Tool | Confirmation |
+|---|---|
+| `calendar_list_events`, `calendar_find_slot` | no |
+| `calendar_create_event` | **yes** |
+| `gmail_search`, `gmail_read` | no |
+| `gmail_draft` | no (draft only) |
+| `gmail_send` | **yes** |
+
+Writes never execute straight from the model. The tool stores a **pending
+action** and asks the customer to confirm; the next affirmative message
+(“yes”, “book it”) executes it exactly once, the result goes back to the model,
+and every attempt is written to `integration_actions` (visible in **Activity**).
+
+Example turn:
+
+```
+Customer: book me a counselling slot tomorrow at 4
+Agent:    tomorrow 4pm is free. Shall I book it?
+Customer: yes
+Agent:    Booked — 5 Nov, 4:00–4:30pm.
+```
 
 ---
 

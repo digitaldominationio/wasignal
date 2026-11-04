@@ -19,6 +19,7 @@ from .routers import (
     billing,
     channels,
     chat,
+    integrations,
     internal,
     knowledge,
     models,
@@ -91,6 +92,7 @@ for guarded in (
     webhooks.router,
     knowledge.router,
     channels.router,
+    integrations.router,
     workspace.router,
 ):
     app.include_router(guarded, dependencies=[Depends(require_writer)])

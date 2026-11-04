@@ -15,6 +15,7 @@ import httpx
 from .. import repo
 from ..llm.base import estimate_tokens
 from . import capabilities as caps
+from ..services import integrations
 from ..services import knowledge as knowledge_service
 
 
@@ -36,7 +37,48 @@ class ToolContext:
         }
 
 
-def tool_specs(agent: dict[str, Any]) -> list[dict[str, Any]]:
+def _iso(description: str) -> dict[str, Any]:
+    return {"type": "string", "description": description}
+
+
+CALENDAR_TOOLS = [
+    ("calendar_list_events", "List calendar events between two ISO-8601 timestamps.",
+     {"time_min": _iso("Start of the window, ISO-8601"), "time_max": _iso("End of the window, ISO-8601")},
+     ["time_min", "time_max"]),
+    ("calendar_find_slot", "Find free calendar slots for a meeting.",
+     {"duration_minutes": {"type": "integer", "description": "Meeting length in minutes"},
+      "after": _iso("Search from this ISO-8601 time"),
+      "before": _iso("Search until this ISO-8601 time")},
+     ["duration_minutes", "after", "before"]),
+    ("calendar_create_event", "Book a calendar event. Requires human confirmation.",
+     {"summary": _iso("Event title"),
+      "start_datetime": _iso("Start, ISO-8601 with timezone"),
+      "end_datetime": _iso("End, ISO-8601 with timezone"),
+      "description": _iso("Optional details")},
+     ["summary", "start_datetime", "end_datetime"]),
+]
+
+EMAIL_TOOLS = [
+    ("gmail_search", "Search the inbox. Returns message ids and snippets.",
+     {"query": _iso("Gmail search query, e.g. from:meera newer_than:7d"),
+      "max_results": {"type": "integer", "description": "How many messages (default 5)"}},
+     ["query"]),
+    ("gmail_read", "Read one message by id.",
+     {"message_id": _iso("Message id from gmail_search")}, ["message_id"]),
+    ("gmail_draft", "Create a draft reply (does not send).",
+     {"recipient_email": _iso("To address"), "subject": _iso("Subject"), "body": _iso("Plain-text body")},
+     ["recipient_email", "subject", "body"]),
+    ("gmail_send", "Send an email. Requires human confirmation.",
+     {"recipient_email": _iso("To address"), "subject": _iso("Subject"), "body": _iso("Plain-text body")},
+     ["recipient_email", "subject", "body"]),
+]
+
+
+def _connected(org_id: int | None, service: str) -> bool:
+    return bool(org_id and integrations.is_connected(int(org_id), service))
+
+
+def tool_specs(agent: dict[str, Any], org_id: int | None = None) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = [
         {
             "name": "search_knowledge",
@@ -92,6 +134,22 @@ def tool_specs(agent: dict[str, Any]) -> list[dict[str, Any]]:
                 "required": ["room_id", "text"],
             },
         })
+
+    connections = agent.get("_connections") or {}
+    for capability, service, catalogue in (
+        ("calendar", "google_calendar", CALENDAR_TOOLS),
+        ("email", "gmail", EMAIL_TOOLS),
+    ):
+        if not caps.can(agent, capability):
+            continue
+        if not (connections.get(service) or _connected(org_id, service)):
+            continue
+        for name, description, properties, required in catalogue:
+            specs.append({
+                "name": name,
+                "description": description,
+                "parameters": {"type": "object", "properties": properties, "required": required},
+            })
 
     account_id = agent.get("account_id")
     for webhook_id in agent.get("webhook_ids") or []:
@@ -165,6 +223,24 @@ async def execute(name: str, arguments: dict[str, Any], ctx: ToolContext) -> dic
             )
             repo.enqueue_outbox(ctx.account["id"], target["id"], text, message_id=message["id"])
             return {"ok": True, "result": {"queued": True, "room_id": target["id"]}}
+
+        if name in {tool[0] for tool in CALENDAR_TOOLS} | {tool[0] for tool in EMAIL_TOOLS}:
+            service = "google_calendar" if name.startswith("calendar_") else "gmail"
+            capability = "calendar" if service == "google_calendar" else "email"
+            caps.require(agent, capability)
+            org_id = int(ctx.account["org_id"]) if ctx.account.get("org_id") else None
+            if not org_id or not integrations.is_connected(org_id, service):
+                return {"ok": False, "error": f"{service}_not_connected", "result": {
+                    "instruction": "Tell the customer this integration still needs to be connected in Settings.",
+                }}
+            if name in integrations.CONFIRM_REQUIRED:
+                return integrations.propose(
+                    org_id, int(agent["id"]), int(ctx.room["id"]), ctx.lane_key, service, name, arguments,
+                )
+            return integrations.execute(
+                org_id, service, name, arguments,
+                agent_id=int(agent["id"]), room_id=int(ctx.room["id"]),
+            )
 
         if name.startswith("webhook_"):
             caps.require(agent, "send")

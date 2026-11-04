@@ -15,7 +15,7 @@ from typing import Any, Optional
 from .. import repo
 from ..config import settings
 from ..llm import LLMError, get_llm
-from ..services import billing
+from ..services import billing, integrations
 from ..llm.base import LLMResponse, ToolCall
 from . import capabilities as caps
 from .prompts import build_messages
@@ -79,10 +79,34 @@ class AgentRuntime:
         _ = started
         return outcome
 
+    def _pending_note(self, text: str) -> str | None:
+        """Resolve a pending write action before the model plans a new turn."""
+        pending = repo.pending_action_for_lane(self.agent["id"], self.room["id"], self.lane_key)
+        if pending is None:
+            return None
+        decision = integrations.confirm_intent(text)
+        if decision is True:
+            result = integrations.confirm_pending(pending)
+            return (
+                "The customer confirmed the pending action. Execution result: "
+                + json.dumps(result, ensure_ascii=False)[:1500]
+                + ". Tell the customer what actually happened; do not repeat the action."
+            )
+        if decision is False:
+            integrations.reject_pending(pending)
+            return "The customer declined the pending action. Acknowledge and do not execute it."
+        summary = integrations.describe(pending["action"], pending["args"])
+        return (
+            f"A pending action is waiting for confirmation: {summary}. "
+            "Do not claim it is done. Ask the customer to confirm or cancel."
+        )
+
     async def _loop(self, run_id: int, *, text: str, history: list[dict[str, Any]], sender_name: str) -> RunOutcome:
         lane = repo.get_lane(self.agent["id"], self.room["id"], self.lane_key)
         if lane["handed_over"]:
             return RunOutcome(run_id, "handover", "", 0, 0, stage="gate", reason="lane is handed over")
+
+        pending_note = self._pending_note(text)
 
         knowledge_sources = repo.agent_knowledge_sources(self.agent["id"])
         memory_block = repo.memory_block(self.agent["id"], int(self.agent.get("max_memory_chars") or 4000))
@@ -95,7 +119,10 @@ class AgentRuntime:
             knowledge_titles=[source["name"] for source in knowledge_sources],
         )
 
-        specs = tool_specs(self.agent)
+        if pending_note:
+            messages[0]["content"] = messages[0]["content"] + "\n\n" + pending_note
+
+        specs = tool_specs(self.agent, self.org_id)
         allowed = caps.can(self.agent, "send")
         ctx = ToolContext(account=self.account, room=self.room, agent=self.agent, lane_key=self.lane_key)
 

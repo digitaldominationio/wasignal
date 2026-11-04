@@ -1152,3 +1152,94 @@ def set_org_defaults(org_id: int, provider: Optional[str], model: Optional[str])
         "UPDATE organizations SET default_provider=?, default_model=? WHERE id=?",
         (provider, model, org_id),
     )
+
+
+# ------------------------------------------------------ integrations / actions
+
+
+def upsert_connected_account(org_id: int, service: str, toolkit: str, external_id: Optional[str],
+                             status: str, provider: str = "composio",
+                             metadata: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    now = int(time.time())
+    db.execute(
+        "INSERT INTO connected_accounts(org_id, service, toolkit, provider, external_id, status, "
+        "metadata_json, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(org_id, service) DO UPDATE SET external_id=excluded.external_id, status=excluded.status, "
+        "metadata_json=excluded.metadata_json, updated_at=excluded.updated_at",
+        (org_id, service, toolkit, provider, external_id, status, _dumps(metadata or {}), now, now),
+    )
+    return get_connected_account(org_id, service)  # type: ignore[return-value]
+
+
+def get_connected_account(org_id: int, service: str) -> Optional[dict[str, Any]]:
+    row = db.one("SELECT * FROM connected_accounts WHERE org_id=? AND service=?", (org_id, service))
+    if row is not None:
+        row["metadata"] = _loads(row.pop("metadata_json", "{}"), {})
+    return row
+
+
+def list_connected_accounts(org_id: int) -> list[dict[str, Any]]:
+    rows = db.query("SELECT * FROM connected_accounts WHERE org_id=? ORDER BY service", (org_id,))
+    for row in rows:
+        row["metadata"] = _loads(row.pop("metadata_json", "{}"), {})
+    return rows
+
+
+def delete_connected_account(org_id: int, service: str) -> None:
+    db.execute("DELETE FROM connected_accounts WHERE org_id=? AND service=?", (org_id, service))
+
+
+def add_integration_action(org_id: int, service: str, action: str, args: dict[str, Any],
+                           status: str, result: Optional[dict[str, Any]] = None,
+                           error: Optional[str] = None, account_id: Optional[int] = None,
+                           agent_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
+    return db.execute(
+        "INSERT INTO integration_actions(org_id, account_id, agent_id, room_id, service, action, "
+        "args_json, status, result_json, error, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (org_id, account_id, agent_id, room_id, service, action, _dumps(args), status,
+         _dumps(result or {}), error, int(time.time())),
+    )
+
+
+def list_integration_actions(org_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    rows = db.query(
+        "SELECT * FROM integration_actions WHERE org_id=? ORDER BY id DESC LIMIT ?", (org_id, limit)
+    )
+    for row in rows:
+        row["args"] = _loads(row.pop("args_json", "{}"), {})
+        row["result"] = _loads(row.pop("result_json", "{}"), {})
+    return rows
+
+
+def create_pending_action(org_id: int, agent_id: int, room_id: int, lane_key: str, service: str,
+                          action: str, args: dict[str, Any], token: str, expires_at: int) -> dict[str, Any]:
+    ident = db.execute(
+        "INSERT INTO pending_actions(org_id, agent_id, room_id, lane_key, service, action, args_json, "
+        "token, created_at, expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (org_id, agent_id, room_id, lane_key, service, action, _dumps(args), token,
+         int(time.time()), expires_at),
+    )
+    row = db.one("SELECT * FROM pending_actions WHERE id=?", (ident,))
+    assert row is not None
+    row["args"] = _loads(row.pop("args_json", "{}"), {})
+    return row
+
+
+def pending_action_for_lane(agent_id: int, room_id: int, lane_key: str,
+                            now: Optional[int] = None) -> Optional[dict[str, Any]]:
+    row = db.one(
+        "SELECT * FROM pending_actions WHERE agent_id=? AND room_id=? AND lane_key=? AND status='pending' "
+        "ORDER BY id DESC LIMIT 1",
+        (agent_id, room_id, lane_key),
+    )
+    if row is None:
+        return None
+    if int(row["expires_at"]) < int(now if now is not None else time.time()):
+        db.execute("UPDATE pending_actions SET status='expired' WHERE id=?", (row["id"],))
+        return None
+    row["args"] = _loads(row.pop("args_json", "{}"), {})
+    return row
+
+
+def resolve_pending_action(action_id: int, status: str) -> None:
+    db.execute("UPDATE pending_actions SET status=? WHERE id=?", (status, action_id))
