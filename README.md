@@ -245,6 +245,8 @@ stores its own provider keys; agents resolve model → provider → key per turn
 | Anthropic | Messages API | Claude models, tool use translated |
 | DeepSeek | OpenAI-compatible | `deepseek-chat` etc. |
 
+![Settings](docs/screenshots/settings.png)
+
 Setup: **Settings → Default model**, paste a key into any provider card, save.
 Keys are validated against the provider's model endpoint, then stored with
 AES-GCM (`WASIGNAL_SECRET_KEY`); the API only returns a hint like `sk-or…4f2a`.
