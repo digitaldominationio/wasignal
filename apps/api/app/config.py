@@ -100,6 +100,7 @@ class Settings:
     composio_base_url: str = os.getenv("COMPOSIO_BASE_URL", "https://backend.composio.dev").rstrip("/")
     composio_auth_calendar: str = os.getenv("COMPOSIO_AUTH_CONFIG_GOOGLE_CALENDAR", "").strip()
     composio_auth_gmail: str = os.getenv("COMPOSIO_AUTH_CONFIG_GMAIL", "").strip()
+    composio_auth_whatsapp: str = os.getenv("COMPOSIO_AUTH_CONFIG_WHATSAPP", "").strip()
     public_web_url: str = os.getenv("WASIGNAL_PUBLIC_WEB_URL", "https://kontactiq.com").rstrip("/")
 
 

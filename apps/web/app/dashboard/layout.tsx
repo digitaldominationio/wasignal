@@ -164,7 +164,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               <strong>WhatsApp isn&apos;t connected.</strong> Your automations and scheduled messages won&apos;t run
               until you link your account.
             </span>
-            <Link href="/dashboard/connections" className="btn sm">
+            <Link href="/dashboard/onboarding" className="btn sm">
               Connect now
             </Link>
           </div>

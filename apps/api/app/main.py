@@ -23,6 +23,7 @@ from .routers import (
     internal,
     knowledge,
     models,
+    onboarding,
     organizations,
     providers,
     rooms,
@@ -79,6 +80,7 @@ for router in (
     billing.router,
     models.router,
     providers.router,
+    onboarding.router,
     internal.router,
     billing.webhooks,
 ):

@@ -132,3 +132,12 @@ def test_tenant_isolation_between_partners():
 
         # and the owner still sees their data untouched
         assert alice.get(f"/dashboard/agents/{agent_id}").status_code == 200
+
+
+def test_onboarding_status():
+    with TestClient(app) as client:
+        _login(client)
+        body = client.get("/dashboard/onboarding").json()
+        assert body["whatsapp"]["connected"] is True  # demo tenant is linked
+        assert [m["id"] for m in body["whatsapp"]["methods"]] == ["qr", "official", "meta"]
+        assert set(body["google"]) >= {"calendar", "gmail", "broker_configured"}
