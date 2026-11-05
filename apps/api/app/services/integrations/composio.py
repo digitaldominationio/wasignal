@@ -1,8 +1,8 @@
-"""Composio v3 broker adapter.
+"""Composio v3 broker adapter, scoped by tenant API key.
 
-Three calls matter: create a link for a toolkit, list connected accounts for a
-tenant, execute a tool for that tenant. Everything is scoped by `user_id`,
-which we set to `org_<id>` so tenants can never reach each other's accounts.
+The tenant supplies their own Composio key (stored encrypted like an LLM key).
+Every call is made with that key and `user_id = org_<id>`, so two tenants can
+never share accounts.
 """
 from __future__ import annotations
 
@@ -25,33 +25,62 @@ class ComposioBroker:
     name = "composio"
     toolkit_slugs = {"google_calendar": "googlecalendar", "gmail": "gmail"}
 
-    def __init__(self) -> None:
-        if not settings.composio_api_key:
-            raise NotConfigured("composio_api_key_missing")
-        self.base = settings.composio_base_url
-        self.headers = {"x-api-key": settings.composio_api_key, "content-type": "application/json"}
+    def __init__(self, api_key: str, base_url: Optional[str] = None) -> None:
+        if not api_key:
+            raise NotConfigured("composio_key_missing")
+        self.api_key = api_key
+        self.base = (base_url or settings.composio_base_url).rstrip("/")
+        self.headers = {"x-api-key": api_key, "content-type": "application/json"}
 
     @staticmethod
     def user_id(org_id: int) -> str:
         return f"org_{org_id}"
 
-    def auth_config_id(self, service: str) -> str:
-        config = {
-            "google_calendar": settings.composio_auth_calendar,
-            "gmail": settings.composio_auth_gmail,
-        }.get(service)
-        if not config:
-            raise NotConfigured(f"composio_auth_config_missing:{service}")
-        return config
+    # ------------------------------------------------------------- validation
+
+    def validate(self) -> int:
+        """Cheap key check: list one toolkit. Raises BrokerError on 401/403."""
+        response = httpx.get(
+            f"{self.base}/api/v3/toolkits",
+            headers=self.headers,
+            params={"limit": 1},
+            timeout=15,
+        )
+        if response.status_code in (401, 403):
+            raise BrokerError("invalid_composio_key")
+        if response.status_code >= 400:
+            raise BrokerError(f"composio {response.status_code}: {response.text[:200]}")
+        payload = response.json()
+        items = payload.get("items") or payload.get("data") or []
+        return len(items)
+
+    def create_auth_config(self, toolkit_slug: str) -> str:
+        """Create a Composio-managed OAuth config and return its id."""
+        response = httpx.post(
+            f"{self.base}/api/v3/auth_configs",
+            headers=self.headers,
+            json={
+                "toolkit": {"slug": toolkit_slug},
+                "auth_config": {"type": "use_composio_managed_auth", "credentials": {}},
+            },
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise BrokerError(f"auth_config {response.status_code}: {response.text[:200]}")
+        data = response.json()
+        config_id = (data.get("auth_config") or {}).get("id") or data.get("id")
+        if not config_id:
+            raise BrokerError("auth_config_missing_id")
+        return str(config_id)
 
     # ------------------------------------------------------------------ calls
 
-    def link(self, org_id: int, service: str, callback_url: str) -> dict[str, Any]:
+    def link(self, org_id: int, auth_config_id: str, callback_url: str) -> dict[str, Any]:
         response = httpx.post(
             f"{self.base}/api/v3/connected_accounts/link",
             headers=self.headers,
             json={
-                "auth_config_id": self.auth_config_id(service),
+                "auth_config_id": auth_config_id,
                 "user_id": self.user_id(org_id),
                 "callback_url": callback_url,
             },
@@ -79,9 +108,8 @@ class ComposioBroker:
         )
         if response.status_code >= 400:
             raise BrokerError(f"list {response.status_code}: {response.text[:200]}")
-        items = response.json().get("items") or []
         accounts = []
-        for item in items:
+        for item in response.json().get("items") or []:
             toolkit = (item.get("toolkit") or {}).get("slug") or ""
             service = next((name for name, slug in self.toolkit_slugs.items() if slug == toolkit), None)
             if not service:
@@ -115,9 +143,8 @@ class ComposioBroker:
         }
 
     def disconnect(self, org_id: int, service: str) -> None:
-        accounts = [a for a in self.list_accounts(org_id) if a["service"] == service]
-        for account in accounts:
-            if account.get("external_id"):
+        for account in self.list_accounts(org_id):
+            if account["service"] == service and account.get("external_id"):
                 httpx.delete(
                     f"{self.base}/api/v3/connected_accounts/{account['external_id']}",
                     headers=self.headers,

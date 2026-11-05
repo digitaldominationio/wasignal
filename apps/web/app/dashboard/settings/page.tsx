@@ -15,14 +15,24 @@ export default function SettingsPage() {
   const [defaultModel, setDefaultModel] = useState<string>("");
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [broker, setBroker] = useState<{ configured: boolean; key_hint?: string | null } | null>(null);
+  const [brokerKey, setBrokerKey] = useState("");
+  const [brokerBusy, setBrokerBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     try {
-      const providers = await api<ProvidersResponse>("/dashboard/providers", { accountId });
+      const [providers, integrations] = await Promise.all([
+        api<ProvidersResponse>("/dashboard/providers", { accountId }),
+        api<{ configured: boolean; broker: { configured: boolean; key_hint?: string | null } }>(
+          "/dashboard/integrations",
+          { accountId },
+        ),
+      ]);
       setData(providers);
+      setBroker(integrations.broker);
       setDefaultProvider(providers.default_provider ?? "");
       setDefaultModel(providers.default_model ?? "");
     } catch (cause) {
@@ -105,6 +115,41 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveBroker(event: React.FormEvent) {
+    event.preventDefault();
+    if (!accountId || !brokerKey.trim()) return;
+    setBrokerBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api<{ configured: boolean; key_hint: string; auth_configs: Record<string, string> }>(
+        "/dashboard/integrations/broker",
+        { method: "PUT", accountId, body: { api_key: brokerKey.trim() } },
+      );
+      setBrokerKey("");
+      setBroker({ configured: result.configured, key_hint: result.key_hint });
+      setNotice(`Composio connected. Created ${Object.keys(result.auth_configs ?? {}).length} OAuth configs for Google.`);
+      await load();
+    } catch (cause) {
+      const err = cause as ApiError;
+      setError(err.status === 400 ? "Composio rejected that key." : err.detail);
+    } finally {
+      setBrokerBusy(false);
+    }
+  }
+
+  async function revokeBroker() {
+    if (!accountId) return;
+    if (!window.confirm("Disconnect Composio for this workspace? Google connections will stop.")) return;
+    try {
+      await api("/dashboard/integrations/broker", { method: "DELETE", accountId });
+      setBroker({ configured: false });
+      setNotice("Composio disconnected.");
+    } catch (cause) {
+      setError((cause as ApiError).detail);
+    }
+  }
+
   async function saveDefaults(event: React.FormEvent) {
     event.preventDefault();
     if (!accountId) return;
@@ -136,6 +181,42 @@ export default function SettingsPage() {
           {notice}
         </div>
       ) : null}
+
+      <form className="card" onSubmit={saveBroker} style={{ marginBottom: 14 }}>
+        <div className="card-title">Integrations broker (Composio)</div>
+        <div className="card-sub">
+          Paste your own Composio API key. We validate it and create Composio-managed OAuth configs for Google
+          Calendar and Gmail — no Google verification wait.
+        </div>
+        <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={broker?.configured ? `replace key (${broker.key_hint})…` : "paste your Composio API key"}
+            value={brokerKey}
+            onChange={(event) => setBrokerKey(event.target.value)}
+            style={{ flex: 1, minWidth: 260 }}
+          />
+          <button className="btn sm" type="submit" disabled={brokerBusy}>
+            {brokerBusy ? "Checking…" : broker?.configured ? "Replace" : "Connect Composio"}
+          </button>
+          {broker?.configured ? (
+            <button className="btn ghost sm" type="button" onClick={revokeBroker}>
+              <Trash2 />
+            </button>
+          ) : null}
+          <a className="btn ghost sm" href="https://app.composio.dev" target="_blank" rel="noreferrer">
+            Get a key <ExternalLink />
+          </a>
+        </div>
+        <div className="muted" style={{ marginTop: 8, fontSize: 11.5 }}>
+          {broker?.configured ? (
+            <>Connected · key {broker.key_hint}. Stored encrypted; each user connects their own Google account.</>
+          ) : (
+            <>Not configured for this workspace. Each tenant brings their own Composio account.</>
+          )}
+        </div>
+      </form>
 
       <form className="card" onSubmit={saveDefaults} style={{ marginBottom: 14 }}>
         <div className="card-title">Default model</div>

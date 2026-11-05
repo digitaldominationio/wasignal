@@ -27,8 +27,8 @@ class FakeBroker:
             "toolkit": "googlecalendar",
         }]
 
-    def link(self, org_id: int, service: str, callback_url: str) -> dict:
-        self.linked.append((org_id, service))
+    def link(self, org_id: int, auth_config_id: str, callback_url: str) -> dict:
+        self.linked.append((org_id, auth_config_id))
         return {"redirect_url": "https://composio.test/connect", "external_id": "ca_pending"}
 
     def list_accounts(self, org_id: int) -> list[dict]:
@@ -45,11 +45,9 @@ class FakeBroker:
 @pytest.fixture()
 def broker(monkeypatch):
     fake = FakeBroker()
-    original = settings.composio_api_key
-    object.__setattr__(settings, "composio_api_key", "test-key")
-    monkeypatch.setattr(integrations, "get_broker", lambda: fake)
+    monkeypatch.setattr(integrations, "get_broker", lambda org_id=None: fake)
+    monkeypatch.setattr(integrations, "_auth_config", lambda org_id, service: f"ac_{service}")
     yield fake
-    object.__setattr__(settings, "composio_api_key", original)
 
 
 def _phone(prefix: str) -> str:
@@ -190,3 +188,72 @@ def test_confirm_intent():
     assert integrations.confirm_intent("Sure, go ahead") is True
     assert integrations.confirm_intent("no, cancel") is False
     assert integrations.confirm_intent("what time is it?") is None
+
+
+class FakeComposioClass:
+    created: list[str] = []
+    toolkit_slugs = {"google_calendar": "googlecalendar", "gmail": "gmail"}
+
+    def __init__(self, api_key: str, base_url: str | None = None) -> None:
+        self.api_key = api_key
+
+    def validate(self) -> int:
+        return 1
+
+    def create_auth_config(self, toolkit_slug: str) -> str:
+        FakeComposioClass.created.append(toolkit_slug)
+        return f"ac_{toolkit_slug}"
+
+    def list_accounts(self, org_id: int) -> list[dict]:
+        return []
+
+    def disconnect(self, org_id: int, service: str) -> None:
+        return None
+
+
+def test_tenant_saves_their_own_composio_key(monkeypatch):
+    FakeComposioClass.created = []
+    monkeypatch.setattr(integrations, "ComposioBroker", FakeComposioClass)
+    phone_a, phone_b = _phone("9470"), _phone("9471")
+
+    with TestClient(app) as a, TestClient(app) as b:
+        org_a = _tenant(a, phone_a, "Broker Co A")
+        _tenant(b, phone_b, "Broker Co B")
+
+        saved = a.put("/dashboard/integrations/broker", json={"api_key": "ak_tenant_123456"})
+        assert saved.status_code == 200, saved.text
+        body = saved.json()
+        assert body["configured"] is True
+        assert body["auth_configs"] == {
+            "google_calendar": "ac_googlecalendar",
+            "gmail": "ac_gmail",
+        }
+        assert FakeComposioClass.created == ["googlecalendar", "gmail"]
+
+        row = repo.get_broker_credential(int(org_a["id"]))
+        assert row["encrypted_key"]
+        assert "ak_tenant_123456" not in row["encrypted_key"]
+        from app.services import secrets as secret_service
+        assert secret_service.decrypt(row["encrypted_key"], row["nonce"]) == "ak_tenant_123456"
+
+        assert a.get("/dashboard/integrations").json()["configured"] is True
+        assert b.get("/dashboard/integrations").json()["configured"] is False
+
+        revoked = a.delete("/dashboard/integrations/broker").json()
+        assert revoked["configured"] is False
+
+
+def test_member_cannot_save_broker_key(monkeypatch):
+    monkeypatch.setattr(integrations, "ComposioBroker", FakeComposioClass)
+    phone_owner, phone_member = _phone("9472"), _phone("9473")
+    with TestClient(app) as owner, TestClient(app) as member:
+        org = _tenant(owner, phone_owner, "Broker Roles")
+        _tenant(member, phone_member, "Member Broker Own")
+        partner = repo.partner_by_phone(phone_member)
+        repo.add_membership(int(org["id"]), int(partner["pid"]), "member")
+
+        response = member.put(
+            f"/dashboard/integrations/broker?org_id={org['id']}",
+            json={"api_key": "ak_member_should_fail"},
+        )
+        assert response.status_code == 403

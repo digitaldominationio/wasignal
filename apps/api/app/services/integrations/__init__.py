@@ -1,18 +1,20 @@
-"""Integration broker facade: connections, action execution, confirmations, audit.
+"""Integration broker facade with per-tenant credentials.
 
-Composio is the first broker. Everything below the facade is broker-neutral:
-`get_broker()` returns an object with link/list_accounts/execute/disconnect.
+A tenant pastes their own Composio API key (Settings → Integrations). We validate
+it, create Composio-managed OAuth configs for the toolkits we expose, and store
+the key encrypted. No deployment-wide broker key is required.
 """
 from __future__ import annotations
 
 import json
 import re
-import secrets
+import secrets as pysecrets
 import time
 from typing import Any, Optional
 
 from ... import repo
 from ...config import settings
+from .. import secrets
 from .composio import BrokerError, ComposioBroker, NotConfigured
 
 SERVICES: dict[str, dict[str, Any]] = {
@@ -44,7 +46,6 @@ ACTION_SLUGS: dict[str, dict[str, str]] = {
     },
 }
 
-# Actions that must be confirmed by the human before they touch the world.
 CONFIRM_REQUIRED = {"calendar_create_event", "gmail_send"}
 SAFE_ACTIONS = {"calendar_list_events", "calendar_find_slot", "gmail_search", "gmail_read", "gmail_draft"}
 
@@ -53,15 +54,85 @@ AFFIRMATIVE = re.compile(r"^(yes|yep|yeah|yup|sure|ok|okay|confirm|confirmed|go 
 NEGATIVE = re.compile(r"^(no|nope|nah|cancel|don'?t|do not|stop)\b", re.I)
 
 
-def get_broker() -> Optional[ComposioBroker]:
-    try:
-        return ComposioBroker()
-    except NotConfigured:
+# ------------------------------------------------------------------ credentials
+
+
+def get_broker(org_id: Optional[int]) -> Optional[ComposioBroker]:
+    if not org_id:
         return None
+    row = repo.get_broker_credential(int(org_id))
+    if row is None or row.get("status") != "active":
+        return None
+    try:
+        api_key = secrets.decrypt(row["encrypted_key"], row["nonce"])
+    except secrets.SecretError:
+        return None
+    return ComposioBroker(api_key, row.get("base_url"))
 
 
-def configured() -> bool:
-    return bool(settings.composio_api_key)
+def configured(org_id: int) -> bool:
+    return get_broker(org_id) is not None
+
+
+def broker_status(org_id: int) -> dict[str, Any]:
+    row = repo.get_broker_credential(org_id)
+    if row is None:
+        return {"configured": False, "provider": "composio", "key_hint": None}
+    return {
+        "configured": row.get("status") == "active",
+        "provider": row.get("provider", "composio"),
+        "key_hint": row.get("key_hint"),
+        "status": row.get("status"),
+    }
+
+
+def save_broker_key(org_id: int, api_key: str, base_url: Optional[str] = None) -> dict[str, Any]:
+    """Validate the tenant key, create managed OAuth configs, store encrypted."""
+    broker = ComposioBroker(api_key.strip(), base_url)
+    broker.validate()
+
+    configs: dict[str, str] = {}
+    for service, spec in SERVICES.items():
+        slug = broker.toolkit_slugs[service]
+        configs[service] = broker.create_auth_config(slug)
+
+    ciphertext, nonce = secrets.encrypt(api_key.strip())
+    repo.upsert_broker_credential(
+        org_id, ciphertext, nonce, secrets.hint(api_key.strip()), base_url, configs,
+    )
+    return {
+        "configured": True,
+        "provider": "composio",
+        "key_hint": secrets.hint(api_key.strip()),
+        "auth_configs": configs,
+        "services": list(configs),
+    }
+
+
+def revoke_broker_key(org_id: int) -> None:
+    repo.delete_broker_credential(org_id)
+    for service in SERVICES:
+        repo.delete_connected_account(org_id, service)
+
+
+def _auth_config(org_id: int, service: str) -> str:
+    row = repo.get_broker_credential(org_id)
+    if row is None:
+        raise NotConfigured("composio_key_missing")
+    configs = row.get("auth_configs") or {}
+    config_id = configs.get(service)
+    if config_id:
+        return config_id
+    broker = get_broker(org_id)
+    if broker is None:
+        raise NotConfigured("composio_key_missing")
+    config_id = broker.create_auth_config(broker.toolkit_slugs[service])
+    configs[service] = config_id
+    repo.update_broker_auth_configs(org_id, configs)
+    return config_id
+
+
+# ------------------------------------------------------------------ lifecycle
 
 
 def _service(service: str) -> dict[str, Any]:
@@ -90,23 +161,20 @@ def services_for_org(org_id: int) -> list[dict[str, Any]]:
             **spec,
             "connected": bool(row and row.get("status") == "active"),
             "status": (row or {}).get("status", "not_connected"),
-            "key_hint": None,
             "provider": (row or {}).get("provider", "composio"),
             "connected_at": (row or {}).get("created_at"),
         })
     return items
 
 
-# ------------------------------------------------------------------ lifecycle
-
-
 def connect(org_id: int, service: str) -> dict[str, Any]:
     _service(service)
-    broker = get_broker()
+    broker = get_broker(org_id)
     if broker is None:
-        raise NotConfigured("composio_api_key_missing")
+        raise NotConfigured("composio_key_missing")
+    auth_config_id = _auth_config(org_id, service)
     callback = f"{settings.public_web_url}/dashboard/connections?connected={service}"
-    link = broker.link(org_id, service, callback)
+    link = broker.link(org_id, auth_config_id, callback)
     repo.upsert_connected_account(
         org_id, service, broker.toolkit_slugs[service], link.get("external_id"), "pending",
     )
@@ -114,7 +182,7 @@ def connect(org_id: int, service: str) -> dict[str, Any]:
 
 
 def sync(org_id: int) -> list[dict[str, Any]]:
-    broker = get_broker()
+    broker = get_broker(org_id)
     if broker is None:
         return services_for_org(org_id)
     try:
@@ -130,7 +198,7 @@ def sync(org_id: int) -> list[dict[str, Any]]:
 
 
 def disconnect(org_id: int, service: str) -> None:
-    broker = get_broker()
+    broker = get_broker(org_id)
     if broker is not None:
         try:
             broker.disconnect(org_id, service)
@@ -144,13 +212,11 @@ def disconnect(org_id: int, service: str) -> None:
 
 def execute(org_id: int, service: str, action: str, arguments: dict[str, Any],
             *, agent_id: Optional[int] = None, room_id: Optional[int] = None) -> dict[str, Any]:
-    """Run one broker action and write an audit row. Safe actions only — writes
-    must go through propose() + confirm_pending()."""
     _service(service)
     slug = ACTION_SLUGS.get(service, {}).get(action)
     if slug is None:
         return {"ok": False, "error": "unknown_action"}
-    broker = get_broker()
+    broker = get_broker(org_id)
     if broker is None:
         return {"ok": False, "error": "broker_not_configured"}
     row = repo.get_connected_account(org_id, service)
@@ -168,11 +234,10 @@ def execute(org_id: int, service: str, action: str, arguments: dict[str, Any],
 
 def propose(org_id: int, agent_id: int, room_id: int, lane_key: str, service: str, action: str,
             arguments: dict[str, Any]) -> dict[str, Any]:
-    """Store a write action and ask the human to confirm it."""
     _service(service)
     if action not in CONFIRM_REQUIRED:
         return {"ok": False, "error": "action_does_not_require_confirmation"}
-    token = secrets.token_urlsafe(12)
+    token = pysecrets.token_urlsafe(12)
     pending = repo.create_pending_action(
         org_id, agent_id, room_id, lane_key, service, action, arguments, token,
         int(time.time()) + PENDING_TTL,

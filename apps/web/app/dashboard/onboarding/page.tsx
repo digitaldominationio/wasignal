@@ -27,6 +27,8 @@ export default function OnboardingPage() {
   const [qrOpen, setQrOpen] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
   const [linkState, setLinkState] = useState("pending");
+  const [brokerKey, setBrokerKey] = useState("");
+  const [brokerBusy, setBrokerBusy] = useState(false);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -187,10 +189,45 @@ export default function OnboardingPage() {
         </div>
 
         {!data?.google.broker_configured ? (
-          <div className="muted" style={{ marginTop: 10 }}>
-            The broker isn&apos;t configured yet. Add <code>COMPOSIO_API_KEY</code> and the Google auth-config ids,
-            then reload.
-          </div>
+          <form
+            className="row"
+            style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!accountId || !brokerKey.trim()) return;
+              setBrokerBusy(true);
+              setError(null);
+              try {
+                await api("/dashboard/integrations/broker", {
+                  method: "PUT",
+                  accountId,
+                  body: { api_key: brokerKey.trim() },
+                });
+                setBrokerKey("");
+                setNotice("Composio connected — Google is ready.");
+                await load();
+              } catch (cause) {
+                setError((cause as ApiError).detail);
+              } finally {
+                setBrokerBusy(false);
+              }
+            }}
+          >
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder="Paste your Composio API key"
+              value={brokerKey}
+              onChange={(event) => setBrokerKey(event.target.value)}
+              style={{ flex: 1, minWidth: 240 }}
+            />
+            <button className="btn sm" type="submit" disabled={brokerBusy}>
+              {brokerBusy ? "Checking…" : "Connect Composio"}
+            </button>
+            <a className="btn ghost sm" href="https://app.composio.dev" target="_blank" rel="noreferrer">
+              Get a key
+            </a>
+          </form>
         ) : null}
 
         {[

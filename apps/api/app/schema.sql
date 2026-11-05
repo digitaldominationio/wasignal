@@ -370,3 +370,18 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pending_lane ON pending_actions(agent_id, room_id, lane_key, status);
+
+
+CREATE TABLE IF NOT EXISTS broker_credentials (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id           INTEGER NOT NULL UNIQUE REFERENCES organizations(id),
+  provider         TEXT NOT NULL DEFAULT 'composio',
+  encrypted_key    TEXT NOT NULL,
+  nonce            TEXT NOT NULL,
+  key_hint         TEXT NOT NULL DEFAULT '',
+  base_url         TEXT,
+  auth_configs_json TEXT NOT NULL DEFAULT '{}',
+  status           TEXT NOT NULL DEFAULT 'active',
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+);

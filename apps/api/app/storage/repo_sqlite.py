@@ -1243,3 +1243,39 @@ def pending_action_for_lane(agent_id: int, room_id: int, lane_key: str,
 
 def resolve_pending_action(action_id: int, status: str) -> None:
     db.execute("UPDATE pending_actions SET status=? WHERE id=?", (status, action_id))
+
+
+# ------------------------------------------------------- broker credentials
+
+
+def upsert_broker_credential(org_id: int, encrypted_key: str, nonce: str, key_hint: str,
+                             base_url: Optional[str], auth_configs: dict[str, str],
+                             provider: str = "composio") -> dict[str, Any]:
+    now = int(time.time())
+    db.execute(
+        "INSERT INTO broker_credentials(org_id, provider, encrypted_key, nonce, key_hint, base_url, "
+        "auth_configs_json, status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(org_id) DO UPDATE SET encrypted_key=excluded.encrypted_key, nonce=excluded.nonce, "
+        "key_hint=excluded.key_hint, base_url=excluded.base_url, auth_configs_json=excluded.auth_configs_json, "
+        "status='active', updated_at=excluded.updated_at",
+        (org_id, provider, encrypted_key, nonce, key_hint, base_url, _dumps(auth_configs), "active", now, now),
+    )
+    return get_broker_credential(org_id)  # type: ignore[return-value]
+
+
+def get_broker_credential(org_id: int) -> Optional[dict[str, Any]]:
+    row = db.one("SELECT * FROM broker_credentials WHERE org_id=?", (org_id,))
+    if row is not None:
+        row["auth_configs"] = _loads(row.pop("auth_configs_json", "{}"), {})
+    return row
+
+
+def update_broker_auth_configs(org_id: int, auth_configs: dict[str, str]) -> None:
+    db.execute(
+        "UPDATE broker_credentials SET auth_configs_json=?, updated_at=? WHERE org_id=?",
+        (_dumps(auth_configs), int(time.time()), org_id),
+    )
+
+
+def delete_broker_credential(org_id: int) -> None:
+    db.execute("DELETE FROM broker_credentials WHERE org_id=?", (org_id,))

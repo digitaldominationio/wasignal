@@ -267,21 +267,20 @@ in Billing as “billed by your provider”.
 ## Integrations: Google Calendar & Gmail (Composio)
 
 Rather than waiting on Google OAuth verification, tenant accounts are connected
-through **Composio** as the broker. The adapter is broker-neutral, so swapping to
-another broker later doesn't touch the agent.
+through **Composio** as the broker — and **each tenant brings their own Composio
+API key**, the same way they bring their own LLM key. Nothing broker-related is
+deployment-wide.
 
-Enable it with three env vars (see `.env.example`):
+Flow:
 
-```bash
-COMPOSIO_API_KEY=...
-COMPOSIO_AUTH_CONFIG_GOOGLE_CALENDAR=ac_...
-COMPOSIO_AUTH_CONFIG_GMAIL=ac_...
-```
+1. Sign in → **Settings → Integrations broker** (or the onboarding step)
+2. Paste the workspace's Composio API key (encrypted at rest)
+3. We validate it and create Composio-managed OAuth configs for Google Calendar
+   and Gmail automatically (`use_composio_managed_auth`)
+4. **Connections → Google → Connect** → Google consent → connected
 
-In Composio: create a project → add the **Google Calendar** and **Gmail**
-toolkits → create an *auth config* for each (Composio-managed OAuth) → paste the
-two `ac_…` ids. Tenants then click **Connections → Google → Connect**, finish
-Google's consent screen, and come back connected.
+No Google Cloud project, no verification queue. Revoking the key disconnects the
+tenant's Google accounts; other tenants are unaffected.
 
 **What agents can do** (only when the agent has the capability *and* the tenant
 is connected):

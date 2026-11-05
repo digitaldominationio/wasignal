@@ -1130,3 +1130,36 @@ def pending_action_for_lane(agent_id: int, room_id: int, lane_key: str,
 
 def resolve_pending_action(action_id: int, status: str) -> None:
     _c("pending_actions").update_one({"_id": action_id}, {"$set": {"status": status}})
+
+
+# ------------------------------------------------------- broker credentials
+
+
+def upsert_broker_credential(org_id: int, encrypted_key: str, nonce: str, key_hint: str,
+                             base_url: Optional[str], auth_configs: dict[str, str],
+                             provider: str = "composio") -> dict[str, Any]:
+    now = int(time.time())
+    fields = {
+        "provider": provider, "encrypted_key": encrypted_key, "nonce": nonce, "key_hint": key_hint,
+        "base_url": base_url, "auth_configs": auth_configs, "status": "active", "updated_at": now,
+    }
+    existing = _c("broker_credentials").find_one({"org_id": org_id})
+    if existing is None:
+        _insert("broker_credentials", org_id=org_id, created_at=now, **fields)
+    else:
+        _c("broker_credentials").update_one({"_id": existing["_id"]}, {"$set": fields})
+    return get_broker_credential(org_id)  # type: ignore[return-value]
+
+
+def get_broker_credential(org_id: int) -> Optional[dict[str, Any]]:
+    return _out(_c("broker_credentials").find_one({"org_id": org_id}))
+
+
+def update_broker_auth_configs(org_id: int, auth_configs: dict[str, str]) -> None:
+    _c("broker_credentials").update_one(
+        {"org_id": org_id}, {"$set": {"auth_configs": auth_configs, "updated_at": int(time.time())}}
+    )
+
+
+def delete_broker_credential(org_id: int) -> None:
+    _c("broker_credentials").delete_one({"org_id": org_id})

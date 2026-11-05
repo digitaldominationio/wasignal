@@ -12,7 +12,8 @@ router = APIRouter(prefix="/dashboard", tags=["onboarding"])
 
 @router.get("/onboarding")
 def onboarding(account: dict = Depends(current_account), org: dict = Depends(current_org)) -> dict:
-    if integrations.configured():
+    is_configured = integrations.configured(org["org_id"])
+    if is_configured:
         integrations.sync(org["org_id"])
     google = integrations.connected_services(org["org_id"])
     whatsapp_connected = bool(account.get("wa_number"))
@@ -29,7 +30,7 @@ def onboarding(account: dict = Depends(current_account), org: dict = Depends(cur
         "google": {
             "calendar": google.get("google_calendar", False),
             "gmail": google.get("gmail", False),
-            "broker_configured": integrations.configured(),
+            "broker_configured": is_configured,
         },
         "complete": whatsapp_connected,
     }

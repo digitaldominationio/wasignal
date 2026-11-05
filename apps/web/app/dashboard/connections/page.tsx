@@ -192,8 +192,8 @@ export default function ConnectionsPage() {
       {error ? <div className="card" style={{ borderColor: "#f0cfcc", marginBottom: 14 }}>{error}</div> : null}
       {integrations && !integrations.configured ? (
         <div className="card" style={{ borderColor: "var(--warn-line)", background: "#fffdf4", marginBottom: 14 }}>
-          Google connections need the broker configured. Add <code>COMPOSIO_API_KEY</code> and the Google auth-config
-          ids to the deployment, then reload this page.
+          Google connections need a Composio key for this workspace. Add one in <strong>Settings → Integrations
+          broker</strong>, then reload this page.
         </div>
       ) : null}
       {note ? <div className="card" style={{ borderColor: "#f1e0b8", background: "#fffdf4", marginBottom: 14 }}>{note}</div> : null}
