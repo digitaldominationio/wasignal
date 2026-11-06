@@ -23,8 +23,8 @@ def normalise_phone(phone: str) -> str:
     return digits
 
 
-def issue_otp(phone: str) -> str:
-    code = settings.dev_otp if settings.dev_otp else f"{secrets.randbelow(900000) + 100000}"
+def issue_otp(phone: str, code: str | None = None) -> str:
+    code = code or f"{secrets.randbelow(900000) + 100000}"
     repo.otp_upsert(phone, code, int(time.time()) + settings.otp_ttl_seconds)
     return code
 

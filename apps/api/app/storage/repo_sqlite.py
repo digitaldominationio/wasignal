@@ -1338,3 +1338,33 @@ def session_create_full(token: str, pid: int, expires_at: int, emulated_org_id: 
         "INSERT INTO sessions(token, partner_pid, emulated_org_id, expires_at) VALUES(?,?,?,?)",
         (token, pid, emulated_org_id, expires_at),
     )
+
+
+# --------------------------------------------------------- platform settings
+
+
+def get_platform_settings() -> Optional[dict[str, Any]]:
+    return db.one("SELECT * FROM platform_settings WHERE id=1")
+
+
+def save_platform_sender(sender_channel: str, phone_number_id: Optional[str], display_number: Optional[str],
+                         token_encrypted: Optional[str], token_nonce: Optional[str],
+                         template_name: Optional[str], template_language: str,
+                         status: str = "active") -> dict[str, Any]:
+    db.execute(
+        "INSERT INTO platform_settings(id, sender_channel, phone_number_id, display_number, token_encrypted, "
+        "token_nonce, template_name, template_language, status, updated_at) "
+        "VALUES(1,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(id) DO UPDATE SET sender_channel=excluded.sender_channel, "
+        "phone_number_id=excluded.phone_number_id, display_number=excluded.display_number, "
+        "token_encrypted=excluded.token_encrypted, token_nonce=excluded.token_nonce, "
+        "template_name=excluded.template_name, template_language=excluded.template_language, "
+        "status=excluded.status, updated_at=excluded.updated_at",
+        (sender_channel, phone_number_id, display_number, token_encrypted, token_nonce,
+         template_name, template_language, status, int(time.time())),
+    )
+    return get_platform_settings()  # type: ignore[return-value]
+
+
+def disable_platform_sender() -> None:
+    db.execute("UPDATE platform_settings SET status='disabled', updated_at=? WHERE id=1", (int(time.time()),))

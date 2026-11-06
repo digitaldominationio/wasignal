@@ -48,6 +48,17 @@ curl -fsSL https://raw.githubusercontent.com/digitaldominationio/wasignal/main/i
 If the image cannot be pulled (private registry or offline), the installer clones
 the repo and builds it locally — slower, and it needs the swap it just created.
 
+## Login OTPs
+
+The installer bootstraps one superadmin with a fixed OTP. To let other people
+sign in, the superadmin connects a platform WhatsApp sender once:
+
+**Admin → Platform WhatsApp sender** → Meta WABA `phone_number_id` + access token
+(+ an approved authentication template for OTPs outside the 24-hour window).
+
+From then on every login code is delivered from that number. Without it, only
+the bootstrap phone can log in.
+
 ## After install
 
 The summary prints:

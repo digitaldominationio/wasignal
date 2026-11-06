@@ -401,3 +401,17 @@ CREATE TABLE IF NOT EXISTS broker_credentials (
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
+
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  sender_channel    TEXT NOT NULL DEFAULT 'none',   -- none | meta | bridge
+  phone_number_id   TEXT,
+  display_number    TEXT,
+  token_encrypted   TEXT,
+  token_nonce       TEXT,
+  template_name     TEXT,
+  template_language TEXT NOT NULL DEFAULT 'en_US',
+  status            TEXT NOT NULL DEFAULT 'disabled',
+  updated_at        INTEGER NOT NULL
+);

@@ -276,6 +276,30 @@ in Billing as “billed by your provider”.
 
 ---
 
+## Login OTP delivery
+
+One platform-owned WhatsApp number sends every tenant's login code — separate
+from the tenant's agent number.
+
+1. Superadmin → **Admin → Platform WhatsApp sender**
+2. Enter the Meta WABA `phone_number_id`, access token, and optionally an
+   approved authentication template (needed outside the 24-hour window)
+3. Activate, then send a test message
+
+Routing on every OTP request:
+
+```
+platform sender active  → random code, sent over WhatsApp (no code in response)
+dev environment         → code returned as dev_code
+no sender, bootstrap    → fixed installer OTP, allowed only for the bootstrap phone
+otherwise               → 503 otp_delivery_unavailable
+```
+
+The token is encrypted at rest; only a `has_token` flag is returned. Until a
+sender is active, only the bootstrap phone can sign in (by design).
+
+---
+
 ## Integrations: Google Calendar & Gmail (Composio)
 
 Rather than waiting on Google OAuth verification, tenant accounts are connected

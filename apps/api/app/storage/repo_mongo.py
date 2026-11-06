@@ -1214,3 +1214,35 @@ def session_create_full(token: str, pid: int, expires_at: int, emulated_org_id: 
         {"_id": token, "partner_pid": pid, "emulated_org_id": emulated_org_id, "expires_at": expires_at},
         upsert=True,
     )
+
+
+# --------------------------------------------------------- platform settings
+
+
+def get_platform_settings() -> Optional[dict[str, Any]]:
+    doc = _c("platform_settings").find_one({"_id": "platform"})
+    return _out(doc) if doc else None
+
+
+def save_platform_sender(sender_channel: str, phone_number_id: Optional[str], display_number: Optional[str],
+                         token_encrypted: Optional[str], token_nonce: Optional[str],
+                         template_name: Optional[str], template_language: str,
+                         status: str = "active") -> dict[str, Any]:
+    _c("platform_settings").update_one(
+        {"_id": "platform"},
+        {"$set": {
+            "sender_channel": sender_channel, "phone_number_id": phone_number_id,
+            "display_number": display_number, "token_encrypted": token_encrypted,
+            "token_nonce": token_nonce, "template_name": template_name,
+            "template_language": template_language, "status": status,
+            "updated_at": int(time.time()),
+        }},
+        upsert=True,
+    )
+    return get_platform_settings()  # type: ignore[return-value]
+
+
+def disable_platform_sender() -> None:
+    _c("platform_settings").update_one(
+        {"_id": "platform"}, {"$set": {"status": "disabled", "updated_at": int(time.time())}}
+    )

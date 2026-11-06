@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from .. import repo, security
 from ..config import settings
 from ..schemas import RequestOtpBody, SignupBody, VerifyOtpBody
-from ..services import billing, notifications
+from ..services import billing, notifications, platform
 
 router = APIRouter(prefix="/dashboard/auth", tags=["auth"])
 
@@ -19,11 +19,8 @@ def request_otp(body: RequestOtpBody) -> dict:
     partner = repo.partner_by_phone(phone)
     if partner is None:
         raise HTTPException(status_code=404, detail="phone_not_registered")
-    code = security.issue_otp(phone)
+    payload, code = _deliver_login(phone)
     _inbox_otp(int(partner["pid"]), code)
-    payload = {"status": "sent"}
-    if settings.env == "dev":
-        payload["dev_code"] = code  # never do this outside dev
     return payload
 
 
@@ -32,6 +29,8 @@ def signup(body: SignupBody) -> dict:
     phone = security.normalise_phone(body.phone)
     if repo.partner_by_phone(phone):
         raise HTTPException(status_code=409, detail="phone_already_registered")
+    if not (platform.is_active() or settings.env == "dev"):
+        raise HTTPException(status_code=503, detail="otp_delivery_unavailable")
     pid = repo.create_partner(phone, body.name)
     from ..migrations import _slug
 
@@ -39,12 +38,38 @@ def signup(body: SignupBody) -> dict:
     billing.ensure_plans()
     billing.subscribe(int(org["id"]), "trial")
     repo.create_account_full(int(org["id"]), pid, body.name, "", "Asia/Kolkata", "trialing")
-    security.issue_otp(phone)
-    _inbox_otp(pid, settings.dev_otp)
-    payload = {"status": "sent", "pid": pid}
-    if settings.env == "dev":
-        payload["dev_code"] = settings.dev_otp
+    payload, code = _deliver_login(phone)
+    _inbox_otp(pid, code)
+    payload["pid"] = pid
     return payload
+
+
+def _deliver_login(phone: str) -> tuple[dict, str]:
+    """Issue a code and deliver it from the platform sender when configured.
+
+    Order: platform WhatsApp sender → dev mode (code in response) → bootstrap
+    phone with the installer OTP → 503 (no delivery path).
+    """
+    if platform.is_active():
+        code = security.issue_otp(phone)
+        result = platform.deliver_otp(phone, code)
+        if not result.get("ok"):
+            raise HTTPException(status_code=502, detail={
+                "code": "otp_delivery_failed",
+                "detail": result.get("error"),
+            })
+        return {"status": "sent"}, code
+
+    if settings.env == "dev":
+        code = security.issue_otp(phone, settings.dev_otp or None)
+        return {"status": "sent", "dev_code": code}, code
+
+    bootstrap = "".join(ch for ch in settings.bootstrap_phone if ch.isdigit())
+    if settings.dev_otp and phone == bootstrap:
+        security.issue_otp(phone, settings.dev_otp)
+        return {"status": "sent"}, settings.dev_otp
+
+    raise HTTPException(status_code=503, detail="otp_delivery_unavailable")
 
 
 def _inbox_otp(pid: int, code: str) -> None:
