@@ -16,14 +16,16 @@ import {
   MessageSquare,
   Plug,
   Settings,
+  ShieldCheck,
   Sparkles,
+  UserCog,
   Tags,
   TriangleAlert,
   Users,
   Workflow,
 } from "lucide-react";
 
-import { api, clearToken } from "@/lib/api";
+import { api, clearToken, storeToken } from "@/lib/api";
 import { initials } from "@/lib/format";
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace";
 
@@ -62,6 +64,11 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [whatsapp, setWhatsapp] = useState<ConnectionState | null>(null);
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [me, setMe] = useState<{
+    is_superadmin: boolean;
+    impersonating: boolean;
+    org: { id: number; name: string } | null;
+  } | null>(null);
 
   const refreshShell = useCallback(async () => {
     if (!accountId) return;
@@ -72,6 +79,12 @@ function Shell({ children }: { children: React.ReactNode }) {
       setStats(overview.stats);
       const quotaData = await api<Quota>("/dashboard/quota", { accountId });
       setQuota(quotaData);
+      const meData = await api<{
+        is_superadmin: boolean;
+        impersonating: boolean;
+        org: { id: number; name: string } | null;
+      }>("/dashboard/me", { accountId });
+      setMe(meData);
     } catch {
       /* the page itself will surface errors */
     }
@@ -80,6 +93,23 @@ function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refreshShell();
   }, [refreshShell, pathname]);
+
+  async function exitImpersonation() {
+    try {
+      await api("/admin/impersonation/stop", { method: "POST" });
+    } catch {
+      /* the session may already be gone */
+    }
+    const adminToken = window.localStorage.getItem("ws_admin_token");
+    if (adminToken) storeToken(adminToken);
+    window.localStorage.removeItem("ws_admin_token");
+    window.localStorage.removeItem("ws_impersonating");
+    router.replace("/dashboard/admin");
+  }
+
+  const navItems = me?.is_superadmin && !me.impersonating
+    ? [...NAV, { href: "/dashboard/admin", label: "Admin", icon: ShieldCheck }]
+    : NAV;
 
   async function signOut() {
     try {
@@ -103,7 +133,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <nav className="nav">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/dashboard" ? pathname === item.href : pathname.startsWith(item.href);
             return (
@@ -157,6 +187,21 @@ function Shell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="main">
+        {me?.impersonating ? (
+          <div
+            className="banner"
+            style={{ background: "#eef4ff", borderColor: "#c9dbf7", color: "#1f4b8f" }}
+          >
+            <UserCog />
+            <span>
+              <strong>Impersonating {me.org?.name ?? window.localStorage.getItem("ws_impersonating")}.</strong>{" "}
+              You are acting as this tenant; writes are recorded in the admin audit.
+            </span>
+            <button className="btn sm" onClick={exitImpersonation}>
+              Exit
+            </button>
+          </div>
+        ) : null}
         {whatsapp && !whatsapp.connected ? (
           <div className="banner">
             <TriangleAlert />

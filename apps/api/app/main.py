@@ -14,6 +14,7 @@ from .config import settings
 from .deps import require_writer
 from .routers import (
     accounts,
+    admin,
     agents,
     auth,
     billing,
@@ -31,6 +32,7 @@ from .routers import (
     webhooks,
     workspace,
 )
+from .services import admin as admin_service
 from .services import billing as billing_service
 from .services import outbound, scheduler
 from .storage import init_storage
@@ -43,6 +45,7 @@ async def lifespan(app: FastAPI):
     billing_service.ensure_plans()
     if settings.seed_demo:
         seed_demo()
+    admin_service.bootstrap_superadmins()
     outbound.start_worker()
     if settings.scheduler_enabled:
         scheduler.start_ticker(settings.tick_seconds)
@@ -75,6 +78,7 @@ if settings.cors_origins:
 # Reads are open to any member; mutations need `member` or better (viewers blocked).
 for router in (
     auth.router,
+    admin.router,
     accounts.router,
     organizations.router,
     billing.router,

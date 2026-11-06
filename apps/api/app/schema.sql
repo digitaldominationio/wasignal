@@ -108,10 +108,26 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-  token       TEXT PRIMARY KEY,
-  partner_pid INTEGER NOT NULL REFERENCES partners(pid),
-  expires_at  INTEGER NOT NULL
+  token            TEXT PRIMARY KEY,
+  partner_pid      INTEGER NOT NULL REFERENCES partners(pid),
+  emulated_org_id  INTEGER,
+  expires_at       INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS platform_admins (
+  pid        INTEGER PRIMARY KEY REFERENCES partners(pid),
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_pid   INTEGER NOT NULL,
+  org_id      INTEGER,
+  action      TEXT NOT NULL,
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_actor ON admin_audit(actor_pid, id);
 
 CREATE TABLE IF NOT EXISTS otps (
   phone      TEXT PRIMARY KEY,

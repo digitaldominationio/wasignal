@@ -28,6 +28,10 @@ def run(db: Database) -> None:
     if "org_id" not in _columns(db, "accounts"):
         db.execute("ALTER TABLE accounts ADD COLUMN org_id INTEGER REFERENCES organizations(id)")
 
+    session_columns = _columns(db, "sessions")
+    if "emulated_org_id" not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN emulated_org_id INTEGER")
+
     org_columns = _columns(db, "organizations")
     if "default_provider" not in org_columns:
         db.execute("ALTER TABLE organizations ADD COLUMN default_provider TEXT")

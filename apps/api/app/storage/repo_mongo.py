@@ -1163,3 +1163,54 @@ def update_broker_auth_configs(org_id: int, auth_configs: dict[str, str]) -> Non
 
 def delete_broker_credential(org_id: int) -> None:
     _c("broker_credentials").delete_one({"org_id": org_id})
+
+
+# ------------------------------------------------------------ platform admin
+
+
+def add_superadmin(pid: int) -> None:
+    _c("platform_admins").update_one(
+        {"_id": pid}, {"$setOnInsert": {"created_at": int(time.time())}}, upsert=True
+    )
+
+
+def is_superadmin(pid: int) -> bool:
+    return bool(_c("platform_admins").find_one({"_id": pid}))
+
+
+def list_orgs() -> list[dict[str, Any]]:
+    return [_out(d) for d in _c("organizations").find().sort("_id", 1)]
+
+
+def add_admin_audit(actor_pid: int, org_id: Optional[int], action: str, detail: Optional[dict[str, Any]] = None) -> int:
+    return _insert(
+        "admin_audit", actor_pid=actor_pid, org_id=org_id, action=action,
+        detail=detail or {}, created_at=int(time.time()),
+    )
+
+
+def list_admin_audit(limit: int = 100) -> list[dict[str, Any]]:
+    return [_out(d) for d in _c("admin_audit").find().sort("_id", -1).limit(limit)]
+
+
+def count_agents_for_org(org_id: int) -> int:
+    accounts = [int(row["id"]) for row in list_org_accounts(org_id)]
+    if not accounts:
+        return 0
+    return int(_c("agents").count_documents({"account_id": {"$in": accounts}}))
+
+
+def last_message_at_for_org(org_id: int) -> int:
+    accounts = [int(row["id"]) for row in list_org_accounts(org_id)]
+    if not accounts:
+        return 0
+    doc = _c("messages").find_one({"account_id": {"$in": accounts}}, sort=[("ts", -1)])
+    return int(doc["ts"]) if doc else 0
+
+
+def session_create_full(token: str, pid: int, expires_at: int, emulated_org_id: Optional[int] = None) -> None:
+    _c("sessions").replace_one(
+        {"_id": token},
+        {"_id": token, "partner_pid": pid, "emulated_org_id": emulated_org_id, "expires_at": expires_at},
+        upsert=True,
+    )

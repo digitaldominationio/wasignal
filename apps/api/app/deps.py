@@ -22,11 +22,25 @@ def current_partner(request: Request) -> int:
 
 
 def current_org(
+    request: Request,
     partner_pid: int = Depends(current_partner),
     org_id: Optional[int] = Query(default=None, alias="org_id"),
     x_org_id: Optional[str] = Header(default=None, alias="x-org-id"),
 ) -> dict:
-    """Resolve the active organization and the caller's role in it."""
+    """Resolve the active organization, honouring platform-admin emulation."""
+    record = security.session_record(request)
+    if record and record.get("emulated_org_id"):
+        if not repo.is_superadmin(partner_pid):
+            raise HTTPException(status_code=403, detail="emulation_not_permitted")
+        emulated = repo.get_org(int(record["emulated_org_id"]))
+        return {
+            "org": emulated,
+            "role": "admin",
+            "org_id": int(emulated["id"]),
+            "emulated": True,
+            "actor_pid": partner_pid,
+        }
+
     target: Optional[int] = org_id
     if target is None and x_org_id:
         try:
@@ -78,9 +92,20 @@ def require_writer(request: Request, org: dict = Depends(current_org)) -> dict:
     """Any member may read; mutating requests need at least `member`."""
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return org
+    if org.get("emulated"):
+        repo.add_admin_audit(
+            int(org["actor_pid"]), int(org["org_id"]), "impersonated_write",
+            {"method": request.method, "path": request.url.path},
+        )
     if ROLE_RANK.get(org["role"], 0) < ROLE_RANK["member"]:
         raise HTTPException(status_code=403, detail="read_only_role")
     return org
+
+
+def current_superadmin(partner_pid: int = Depends(current_partner)) -> int:
+    if not repo.is_superadmin(partner_pid):
+        raise HTTPException(status_code=403, detail="superadmin_required")
+    return partner_pid
 
 
 def current_account(

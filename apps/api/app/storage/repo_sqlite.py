@@ -1279,3 +1279,62 @@ def update_broker_auth_configs(org_id: int, auth_configs: dict[str, str]) -> Non
 
 def delete_broker_credential(org_id: int) -> None:
     db.execute("DELETE FROM broker_credentials WHERE org_id=?", (org_id,))
+
+
+# ------------------------------------------------------------ platform admin
+
+
+def add_superadmin(pid: int) -> None:
+    db.execute(
+        "INSERT INTO platform_admins(pid, created_at) VALUES(?,?) ON CONFLICT(pid) DO NOTHING",
+        (pid, int(time.time())),
+    )
+
+
+def is_superadmin(pid: int) -> bool:
+    return bool(db.scalar("SELECT COUNT(*) FROM platform_admins WHERE pid=?", (pid,), default=0))
+
+
+def list_orgs() -> list[dict[str, Any]]:
+    return db.query("SELECT * FROM organizations ORDER BY id")
+
+
+def add_admin_audit(actor_pid: int, org_id: Optional[int], action: str, detail: Optional[dict[str, Any]] = None) -> int:
+    return db.execute(
+        "INSERT INTO admin_audit(actor_pid, org_id, action, detail_json, created_at) VALUES(?,?,?,?,?)",
+        (actor_pid, org_id, action, _dumps(detail or {}), int(time.time())),
+    )
+
+
+def list_admin_audit(limit: int = 100) -> list[dict[str, Any]]:
+    rows = db.query("SELECT * FROM admin_audit ORDER BY id DESC LIMIT ?", (limit,))
+    for row in rows:
+        row["detail"] = _loads(row.pop("detail_json", "{}"), {})
+    return rows
+
+
+def count_agents_for_org(org_id: int) -> int:
+    accounts = [int(row["id"]) for row in list_org_accounts(org_id)]
+    if not accounts:
+        return 0
+    placeholders = ",".join("?" for _ in accounts)
+    return int(db.scalar(
+        f"SELECT COUNT(*) FROM agents WHERE account_id IN ({placeholders})", accounts, default=0
+    ))
+
+
+def last_message_at_for_org(org_id: int) -> int:
+    accounts = [int(row["id"]) for row in list_org_accounts(org_id)]
+    if not accounts:
+        return 0
+    placeholders = ",".join("?" for _ in accounts)
+    return int(db.scalar(
+        f"SELECT MAX(ts) FROM messages WHERE account_id IN ({placeholders})", accounts, default=0
+    ) or 0)
+
+
+def session_create_full(token: str, pid: int, expires_at: int, emulated_org_id: Optional[int] = None) -> None:
+    db.execute(
+        "INSERT INTO sessions(token, partner_pid, emulated_org_id, expires_at) VALUES(?,?,?,?)",
+        (token, pid, emulated_org_id, expires_at),
+    )

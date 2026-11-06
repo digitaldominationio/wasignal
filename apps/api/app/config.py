@@ -103,6 +103,11 @@ class Settings:
     composio_auth_whatsapp: str = os.getenv("COMPOSIO_AUTH_CONFIG_WHATSAPP", "").strip()
     public_web_url: str = os.getenv("WASIGNAL_PUBLIC_WEB_URL", "https://kontactiq.com").rstrip("/")
 
+    # Comma-separated phone numbers promoted to platform admin at startup.
+    superadmin_phones: tuple[str, ...] = tuple(
+        phone.strip() for phone in os.getenv("WASIGNAL_SUPERADMIN_PHONES", "").split(",") if phone.strip()
+    )
+
 
     # channel: "stub" (in-memory outbox) or "meta" (Cloud API)
     channel: str = os.getenv("WASIGNAL_CHANNEL", "stub")

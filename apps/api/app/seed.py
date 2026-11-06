@@ -131,4 +131,6 @@ def seed_demo() -> None:
         sender="wasignal", sender_name="Wasignal", source="system", ts=now - 3 * 3600,
     )
 
+    repo.add_superadmin(pid)
+
     print(f"[seed] partner pid={pid} account={account_id} agent={agent['id']} room={aarav['id']}")

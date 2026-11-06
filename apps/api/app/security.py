@@ -42,10 +42,10 @@ def verify_otp(phone: str, code: str) -> bool:
     return True
 
 
-def create_session(pid: int) -> tuple[str, int]:
+def create_session(pid: int, emulated_org_id: int | None = None) -> tuple[str, int]:
     token = secrets.token_urlsafe(32)
     expires_at = int(time.time()) + settings.session_ttl_seconds
-    repo.session_create(token, pid, expires_at)
+    repo.session_create_full(token, pid, expires_at, emulated_org_id)
     return token, expires_at
 
 
@@ -56,14 +56,19 @@ def token_from_request(request: Request) -> Optional[str]:
     return request.cookies.get(settings.session_cookie)
 
 
-def session_partner(request: Request) -> Optional[int]:
+def session_record(request: Request) -> Optional[dict]:
     token = token_from_request(request)
     if not token:
         return None
     row = repo.session_get(token)
     if row is None or row["expires_at"] < time.time():
         return None
-    return int(row["partner_pid"])
+    return row
+
+
+def session_partner(request: Request) -> Optional[int]:
+    row = session_record(request)
+    return int(row["partner_pid"]) if row else None
 
 
 def destroy_session(request: Request) -> None:
