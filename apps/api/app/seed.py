@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 
 from . import repo
+from .config import settings
 from .services import billing
 
 
@@ -15,14 +16,23 @@ def seed_demo() -> None:
         return
 
     now = int(time.time())
-    pid = repo.create_partner("9999000001", "Ambition Academy")
-    repo.set_wa_linked(pid, True)
-    org = repo.create_org(pid, "Ambition Academy", "ambition-academy")
+    phone = settings.bootstrap_phone
+    minimal = settings.seed_mode == "minimal"
+    name = "My Workspace" if minimal else "Ambition Academy"
+    pid = repo.create_partner(phone, name)
+    repo.set_wa_linked(pid, not minimal)
+    org = repo.create_org(pid, name, "workspace" if minimal else "ambition-academy")
     billing.ensure_plans()
-    billing.subscribe(int(org["id"]), "growth")
+    billing.subscribe(int(org["id"]), "trial" if minimal else "growth")
     account_id = repo.create_account_full(
-        int(org["id"]), pid, "Ambition Academy", "+919999000001", "Asia/Kolkata", "active"
+        int(org["id"]), pid, name,
+        "" if minimal else "+919999000001",
+        "Asia/Kolkata", "trialing" if minimal else "active",
     )
+    repo.add_superadmin(pid)
+    if minimal:
+        print(f"[seed] minimal workspace pid={pid} org={org['id']} phone={phone}")
+        return
 
     aarav = repo.ensure_room(account_id, "919900000001@s.whatsapp.net", "dm", "Aarav Sharma")
     _team = repo.ensure_room(account_id, "120363000000000001@g.us", "group", "Sales team")

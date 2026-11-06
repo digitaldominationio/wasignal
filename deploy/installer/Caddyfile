@@ -1,0 +1,16 @@
+# Caddy terminates TLS automatically for SITE_ADDRESS.
+# With a domain, set SITE_ADDRESS=app.example.com (DNS A record must point here).
+# Without a domain the installer sets SITE_ADDRESS=:80 and serves plain HTTP.
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy app:80
+}

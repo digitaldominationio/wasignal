@@ -1,0 +1,78 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--quiet", "--wiredTigerCacheSizeGB", "0.25"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: wasignal
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval 'db.adminCommand(\"ping\").ok' >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep -q PONG"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+
+  app:
+    image: ${WASIGNAL_IMAGE}
+    restart: unless-stopped
+    environment:
+      WASIGNAL_ENV: production
+      WASIGNAL_DB_BACKEND: mongo
+      MONGODB_URI: mongodb://wasignal:${MONGO_PASSWORD}@mongo:27017/wasignal?authSource=admin
+      MONGODB_DB: wasignal
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      WASIGNAL_SECRET_KEY: ${WASIGNAL_SECRET_KEY}
+      WASIGNAL_INTERNAL_KEY: ${WASIGNAL_INTERNAL_KEY}
+      WASIGNAL_BOOTSTRAP_PHONE: ${ADMIN_PHONE}
+      WASIGNAL_DEV_OTP: ${ADMIN_OTP}
+      WASIGNAL_SUPERADMIN_PHONES: ${ADMIN_PHONE}
+      WASIGNAL_SEED_MODE: minimal
+      WASIGNAL_SEED_DEMO: "1"
+      WASIGNAL_PUBLIC_WEB_URL: ${PUBLIC_URL}
+      WASIGNAL_CORS_ORIGINS: ${PUBLIC_URL}
+      WASIGNAL_COOKIE_SECURE: ${WASIGNAL_COOKIE_SECURE:-true}
+      WASIGNAL_TICK_SECONDS: "15"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  mongo_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

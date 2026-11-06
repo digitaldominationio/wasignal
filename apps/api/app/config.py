@@ -104,6 +104,10 @@ class Settings:
     public_web_url: str = os.getenv("WASIGNAL_PUBLIC_WEB_URL", "https://kontactiq.com").rstrip("/")
 
     # Comma-separated phone numbers promoted to platform admin at startup.
+    # Installer bootstrap: first partner created on an empty database.
+    bootstrap_phone: str = os.getenv("WASIGNAL_BOOTSTRAP_PHONE", "9999000001")
+    seed_mode: str = os.getenv("WASIGNAL_SEED_MODE", "demo").strip().lower()
+
     superadmin_phones: tuple[str, ...] = tuple(
         phone.strip() for phone in os.getenv("WASIGNAL_SUPERADMIN_PHONES", "").split(",") if phone.strip()
     )

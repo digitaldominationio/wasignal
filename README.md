@@ -19,6 +19,18 @@ docs       architecture, bridge contract
 
 ---
 
+## Install on a $5 VPS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/digitaldominationio/wasignal/main/install.sh | sudo bash
+```
+
+One command installs Docker, MongoDB, Redis, TLS (Caddy), generated secrets,
+nightly backups and a superadmin account. Works on 1 GB Debian/Ubuntu servers.
+Full guide: **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+---
+
 ## Quickstart
 
 ### 1. API
